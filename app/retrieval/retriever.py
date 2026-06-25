@@ -1,5 +1,5 @@
-from app.retrieval.vector_store import cosine_similarity
-from app.config import top_k 
+from retrieval.vector_store import cosine_similarity
+from config import top_k 
 
 
 

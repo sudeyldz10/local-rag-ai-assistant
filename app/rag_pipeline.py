@@ -1,4 +1,4 @@
-from app.ingestion.embedding_generator import generate_document_embedding, generate_query_embedding
+from app.ingestion.embedding_generator import generate_document_embeddings, generate_query_embedding
 from app.retrieval.retriever import find_relevant
 from app.llm.prompt_templates import built_rag_prompt as build_rag_prompt
 from app.utils.helpers import clean_answer
@@ -14,7 +14,7 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client):
     for i, score in results:
         print(f"Score: {score:.4f} | {docs[i]}")
             
-        context = "\n".join(f"- {docs[i]}" for i, _ in results)
+    context = "\n".join(f"- {docs[i]}" for i, _ in results)
 
     messages = [
         {

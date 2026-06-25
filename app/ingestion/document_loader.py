@@ -1,40 +1,51 @@
-def load_documents():
+import os
+import fitz
+from docx import Document
 
-    docs = [
-        "Python listeleri mutable veri tipidir.",
-        "Tuple'lar immutable'dır.",
-        "Dictionary key-value yapısı kullanır.",
-        "Python fonksiyonları tekrar kullanılabilir kod bloklarıdır.",
-        "Listeler köşeli parantez ile tanımlanır.",
-        "Tuple veri tipi değiştirilemez yapıdadır.",
-        "Set veri tipi benzersiz elemanlar tutar.",
-        "Dictionary veri tipi anahtar-değer mantığıyla çalışır.",
-        "Python'da stringler immutable veri tipidir.",
-        "For döngüsü iterable yapılar üzerinde gezinmek için kullanılır.",
-        "While döngüsü koşul doğru olduğu sürece çalışır.",
-        "Python'da indentation kod bloklarını belirler.",
-        "len() fonksiyonu bir yapının uzunluğunu döndürür.",
-        "append() metodu listeye yeni eleman ekler.",
-        "remove() metodu listeden eleman siler.",
-        "Python nesne yönelimli programlamayı destekler.",
-        "Class yapıları nesne oluşturmak için kullanılır.",
-        "Constructor metodu init ile tanımlanır.",
-        "Boolean veri tipi True veya False değer alır.",
-        "Python'da yorum satırları # işareti ile yazılır.",
-        "Try-except yapısı hata yakalamak için kullanılır.",
-        "Import ifadesi başka modülleri projeye dahil eder.",
-        "Python dinamik tipli bir programlama dilidir.",
-        "Return ifadesi fonksiyondan değer döndürür.",
-        "Input() fonksiyonu kullanıcıdan veri almak için kullanılır.",
-        "print() fonksiyonu ekrana çıktı verir.",
-        "Python'da list comprehension kısa liste oluşturmayı sağlar.",
-        "Break ifadesi döngüyü sonlandırır.",
-        "Continue ifadesi mevcut iterasyonu atlar.",
-        "Global değişkenler fonksiyon dışında tanımlanır.",
-        "Local değişkenler yalnızca tanımlandıkları blokta geçerlidir.",
-        "Python açık kaynaklı bir programlama dilidir.",
-        "Comments kodun açıklanmasını sağlar."
-    ]
+def load_txt(file_path):
+    with open(file_path, "r", encoding="utf-8") as f:
+        text = f.read()
+    return text
 
+def load_pdf(file_path):
+    text = ""
+    pdf=fitz.open(file_path)
+    for page in pdf:
+        text += page.get_text()
+    return text
+
+def load_docx(file_path):
+    doc= Document(file_path)
+    parapraghs= [p.text for p in doc.paragraphs if p.text.strip()]
+    text="\n".join(parapraghs)
+    return text
+
+
+
+def load_single_file(file_path):
+    if file_path.endswith(".txt"):
+        return load_txt(file_path)
+    elif file_path.endswith(".pdf"):
+        return load_pdf(file_path)
+    elif file_path.endswith(".docx"):
+        return load_docx(file_path)
+    else:
+        print(f"unsupported formats: {file_path}")
+        return None
+
+def load_documents(data_dir="data"):
+    docs=[]
+
+    for file_name in os.listdir(data_dir):
+        file_path=os.path.join(data_dir, file_name)
+
+        text= load_single_file(file_path)
+
+        if text:
+            docs.append({"text": text, "source": file_name})
+            print(f"Downloaded: {file_name}")
+    
+    print(f"\n Total {len(docs)} is downloaded")
     return docs
+
                                               
