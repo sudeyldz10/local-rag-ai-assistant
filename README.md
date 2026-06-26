@@ -6,7 +6,7 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 
 ## Demo
 
-![Local RAG AI Assistant Demo](assests/demo.gif)
+![Local RAG AI Assistant Demo](assets/demo.gif)
 
 ---
 
