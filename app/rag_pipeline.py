@@ -1,3 +1,4 @@
+import re
 from app.ingestion.embedding_generator import generate_document_embeddings, generate_query_embedding
 from app.retrieval.retriever import find_relevant
 from app.llm.prompt_templates import built_rag_prompt as build_rag_prompt
@@ -27,6 +28,8 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client):
     
     ]
     full_answer = ""
+    inside_think=False
+
 
     for chunk in chat_client.complete_streaming_chat(messages):
         if not chunk.choices:
@@ -37,7 +40,16 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client):
         if content:
             full_answer += content
 
-    return clean_answer(full_answer)
+            if "<think>" in full_answer:
+                inside_think = True
+
+            if "</think>" in full_answer:
+                inside_think = False
+
+                full_answer = re.sub(r"<think>.*?</think>", "", full_answer, flags=re.DOTALL)
+
+
+    return full_answer.strip()
 
 
             

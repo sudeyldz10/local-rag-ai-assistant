@@ -11,7 +11,9 @@ def load_pdf(file_path):
     text = ""
     pdf=fitz.open(file_path)
     for page in pdf:
-        text += page.get_text()
+        page_text = page.get_text()
+        lines = [line.strip() for line in page_text.split("\n") if len(line.strip()) > 20]
+        text += "\n".join(lines) + "\n"
     return text
 
 def load_docx(file_path):
@@ -34,18 +36,29 @@ def load_single_file(file_path):
         return None
 
 def load_documents(data_dir="data"):
-    docs=[]
+    supported={".txt", ".pdf", ".docx"}
+    all_docs=[]
 
-    for file_name in os.listdir(data_dir):
-        file_path=os.path.join(data_dir, file_name)
 
-        text= load_single_file(file_path)
+    for root, dirs, files in os.walk(data_dir):
+        for file_name in files:
+            file_path=os.path.join(root, file_name)
+            ext=os.path.splitext(file_name)[1].lower()
+            
+            if ext not in supported:
+                print(f"unsuppoted formats: {file_path}")
+                continue
 
-        if text:
-            docs.append({"text": text, "source": file_name})
-            print(f"Downloaded: {file_name}")
-    
-    print(f"\n Total {len(docs)} is downloaded")
-    return docs
+            try:
+                text=load_single_file(file_path)
+                if text:
+                    all_docs.append({"text": text, "source": file_path})
+                    print(f"Downloaded: {file_path}")
+            
+            except Exception as e:
+                print(f"Error: {file_name} - {e}")
+
+    print(f"\nTotal {len(all_docs)} is downloaded")
+    return all_docs
 
                                               

@@ -1,0 +1,1 @@
+Bu bir test belgesidir. Python programlama dili güçlü ve esnek bir dildir.
