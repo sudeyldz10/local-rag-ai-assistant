@@ -3,6 +3,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ingestion.document_loader import load_documents
+from ingestion.text_splitter import split_documents
 from llm.local_llm import initialize_foundry, load_embedding_model, load_chat_client
 from ingestion.embedding_generator import generate_document_embeddings
 from rag_pipeline import ask_question
@@ -15,6 +16,7 @@ def main():
         manager = initialize_foundry()
 
         documents = load_documents()
+        chunks= split_documents(documents)
 
         embedding_client =load_embedding_model(manager)
        
@@ -40,8 +42,5 @@ def main():
 
 
 if __name__ == "__main__":
-    docs= load_documents("data")
-    for doc in docs:
-        print(f"\nFile: {doc['source']}")
-        print(f"first 200 character: {doc['text'][:200]}")
+    main()
 
