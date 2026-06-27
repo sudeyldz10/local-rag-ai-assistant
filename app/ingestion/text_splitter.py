@@ -18,7 +18,8 @@ def split_documents(documents):
         chunks=split_text(doc["text"])
 
         for chunk in chunks:
-            all_chunks.append({"text": chunk, "source": doc["source"]})
+            if len(chunk.strip())>50:
+                all_chunks.append({"text": chunk, "source": doc["source"]})
 
     print(f"total {len(all_chunks)} chunk is created")
     return all_chunks

@@ -39,6 +39,8 @@ def main():
 
         print("Type 'quit' to exit.\n")
 
+        history=[]
+
         while True:
 
             query = input("Question > ").strip()
@@ -46,7 +48,7 @@ def main():
                 break
 
 
-            answer = ask_question(query, chunks, doc_embeddings, embedding_client, chat_client)
+            answer, history = ask_question(query, chunks, doc_embeddings, embedding_client, chat_client, history)
 
             print("\nAnswer: ", answer)
             
