@@ -13,10 +13,15 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 ## Features
 
 - **Multi-format document loading** — supports `.txt`, `.pdf`, and `.docx` files
-- **Text chunking and preprocessing** — smart splitting for optimal retrieval
-- **Embedding generation** — semantic vector representations of document content
+- **Recursive folder scanning** — automatically scans all subfolders for documents
+- **Text chunking and preprocessing** — smart splitting with configurable chunk size and overlap
+- **Embedding generation** — semantic vector representations via Foundry Local SDK
+- **Embedding persistence** — embeddings saved to JSON, no recalculation on restart
 - **Semantic similarity search** — finds the most relevant chunks for each query
 - **Retrieval-Augmented Generation (RAG)** — grounds LLM answers in your documents
+- **Conversation history** — remembers previous questions within a session
+- **Source filtering** — use `[foldername]` tag to search only within a specific folder
+- **Environment-based config** — document path set via `.env`, no hardcoded paths
 - **Local LLM integration** — via Microsoft Foundry Local SDK, no cloud required
 - **Modular project architecture** — clean separation of ingestion, retrieval, and generation
 - **Fully offline workflow** — your data never leaves your machine
@@ -28,11 +33,11 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 | Tool | Purpose |
 |------|---------|
 | Python | Core language |
-| Microsoft Foundry Local SDK | Local LLM inference |
-| Sentence Transformers | Embedding generation |
-| ChromaDB / FAISS | Vector storage and retrieval |
-| PyMuPDF / python-docx | PDF and DOCX parsing |
-| NumPy / PyTorch | Numerical backend |
+| Microsoft Foundry Local SDK | Local LLM inference and embedding generation |
+| PyMuPDF (fitz) | PDF parsing |
+| python-docx | DOCX parsing |
+| NumPy | Cosine similarity computation |
+| python-dotenv | Environment variable management |
 
 ---
 
@@ -43,26 +48,30 @@ local-rag-ai-assistant/
 │
 ├── app/
 │   ├── ingestion/
-│   │   ├── document_loader.py    # TXT, PDF, DOCX loading
-│   │   ├── text_splitter.py      # Chunk splitting logic
-│   │   └── embedding_generator.py
+│   │   ├── document_loader.py     # TXT, PDF, DOCX loading with folder recursion
+│   │   ├── text_splitter.py       # Chunk splitting logic
+│   │   ├── embedding_generator.py # Vector generation via Foundry Local
+│   │   └── embedding_store.py     # Save/load embeddings to JSON
 │   │
 │   ├── retrieval/
-│   │   ├── vector_store.py       # ChromaDB / FAISS interface
-│   │   └── retriever.py          # Semantic search
+│   │   ├── vector_store.py        # Cosine similarity
+│   │   └── retriever.py           # Top-k semantic search
 │   │
-│   ├── generation/
-│   │   └── llm_handler.py        # Foundry Local integration
+│   ├── llm/
+│   │   ├── local_llm.py           # Foundry Local initialization
+│   │   └── prompt_templates.py    # System prompt builder
 │   │
 │   ├── utils/
-│   │   └── helpers.py
+│   │   └── helpers.py             # Answer cleaning
 │   │
-│   └── main.py                   # Entry point
+│   ├── rag_pipeline.py            # End-to-end RAG logic
+│   └── main.py                    # Entry point
 │
-├── data/                         # Place your documents here
-├── docs/
+├── data/                          # Default document folder
+├── vector/                        # Saved embeddings (auto-generated)
 ├── requirements.txt
-└── .env
+├── .env                           # Set DOCS_PATH here
+└── .env.example
 ```
 
 ---
@@ -70,39 +79,31 @@ local-rag-ai-assistant/
 ## How It Works
 
 ```
-Your Document (TXT / PDF / DOCX)
+Your Documents (TXT / PDF / DOCX)
         │
         ▼
-  [ Document Loader ]
+  [ Document Loader ]  →  recursive folder scan
         │
         ▼
-  [ Text Splitter ]  →  chunks
+  [ Text Splitter ]  →  overlapping chunks
         │
         ▼
-  [ Embedding Generator ]  →  vectors
+  [ Embedding Generator ]  →  vectors via Foundry Local
         │
         ▼
-  [ Vector Store (ChromaDB/FAISS) ]
+  [ Embedding Store ]  →  saved to vector/embeddings.json
         │
    User Query
         │
         ▼
-  [ Retriever ]  →  top-k relevant chunks
+  [ Retriever ]  →  top-k relevant chunks (with optional source filter)
         │
         ▼
-  [ LLM Handler (Foundry Local) ]
+  [ LLM (Foundry Local) ]
         │
         ▼
      Answer ✓
 ```
-
-1. Documents are loaded and parsed by format (TXT / PDF / DOCX)
-2. Text is split into overlapping chunks for better context coverage
-3. Each chunk is converted to a vector embedding
-4. Embeddings are stored in a local vector database
-5. User queries are embedded and matched against stored vectors
-6. The most relevant chunks are retrieved and passed to the local LLM
-7. The LLM generates a grounded, context-aware response
 
 ---
 
@@ -114,11 +115,31 @@ cd local-rag-ai-assistant
 pip install -r requirements.txt
 ```
 
-Run the assistant:
+Set your documents folder in `.env`:
+```
+DOCS_PATH=/path/to/your/documents
+```
 
+Run the assistant:
 ```bash
 python app/main.py
 ```
+
+---
+
+## Usage
+
+**Basic question:**
+```
+Question > What is the Mean Value Theorem?
+```
+
+**Filter by folder:**
+```
+Question > [math210] implicit function theorem nedir?
+```
+
+Only documents inside the `math210` folder will be searched.
 
 ---
 
@@ -132,7 +153,6 @@ Building this project gave me hands-on experience with:
 - Integrating a local LLM through the Microsoft Foundry Local SDK
 - Designing a modular, layered Python project from scratch
 - Debugging import errors, module structure issues, and model initialization
-- Managing vector databases and retrieval pipelines
 - Building a fully offline AI system with zero external API calls
 
 ---
@@ -143,27 +163,29 @@ Building this project gave me hands-on experience with:
 - Getting the Foundry Local SDK initialized correctly
 - Tuning chunk size and overlap for better retrieval quality
 - Structuring the project so each module stays independent and testable
-- Suppressing unwanted model output (e.g. `<think>` reasoning tokens)
+- Suppressing `<think>` reasoning tokens from model output using regex
+- Scanned PDFs returning only `\n` characters — solved with a minimum content length filter
+- Unrelated documents scoring high in retrieval — solved with source filtering by folder tag
+- Large embedding models (8b) being too slow for local use — reverted to 0.6b
 
 ---
 
 ## Future Improvements
 
-- Conversation memory across turns
 - Streaming responses in real time
-- Desktop GUI interface
-- Multi-document indexing and switching
+- Desktop GUI interface (Gradio)
 - Better retrieval ranking (hybrid search: BM25 + semantic)
+- Re-ranking with a cross-encoder model
 - Support for more formats (Markdown, HTML, CSV)
 
 ---
 
 ## Example Use Cases
 
-- Ask questions about a research paper or report
+- Ask questions about your lecture notes and textbooks
 - Build a private, offline knowledge base from your own documents
 - Summarize long documents without sending data to the cloud
-- Experiment with RAG pipelines and local LLM inference
+- Filter searches by subject folder for more precise answers
 
 ---
 
