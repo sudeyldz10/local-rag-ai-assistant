@@ -13,7 +13,7 @@ from ingestion.embedding_generator import generate_document_embeddings
 from rag_pipeline import ask_question
 
 DOCS_PATH = os.getenv("DOCS_PATH", "data")
-EMBEDDINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../vector/embeddings.json")
+EMBEDDINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../vector/embeddings.db")
 
 
 def main():
