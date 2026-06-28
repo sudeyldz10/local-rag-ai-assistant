@@ -16,7 +16,7 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 - **Recursive folder scanning** — automatically scans all subfolders for documents
 - **Text chunking and preprocessing** — smart splitting with configurable chunk size and overlap
 - **Embedding generation** — semantic vector representations via Foundry Local SDK
-- **Embedding persistence** — embeddings saved to JSON, no recalculation on restart
+- **Embedding persistence** — embeddings saved to SQLite database, no recalculation on restart
 - **Semantic similarity search** — finds the most relevant chunks for each query
 - **Retrieval-Augmented Generation (RAG)** — grounds LLM answers in your documents
 - **Conversation history** — remembers previous questions within a session
@@ -34,6 +34,7 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 |------|---------|
 | Python | Core language |
 | Microsoft Foundry Local SDK | Local LLM inference and embedding generation |
+| SQLite | Local vector storage (via built-in sqlite3) |
 | PyMuPDF (fitz) | PDF parsing |
 | python-docx | DOCX parsing |
 | NumPy | Cosine similarity computation |
@@ -51,7 +52,7 @@ local-rag-ai-assistant/
 │   │   ├── document_loader.py     # TXT, PDF, DOCX loading with folder recursion
 │   │   ├── text_splitter.py       # Chunk splitting logic
 │   │   ├── embedding_generator.py # Vector generation via Foundry Local
-│   │   └── embedding_store.py     # Save/load embeddings to JSON
+│   │   └── embedding_store.py     # Save/load embeddings to SQLite
 │   │
 │   ├── retrieval/
 │   │   ├── vector_store.py        # Cosine similarity
@@ -68,7 +69,7 @@ local-rag-ai-assistant/
 │   └── main.py                    # Entry point
 │
 ├── data/                          # Default document folder
-├── vector/                        # Saved embeddings (auto-generated)
+├── vector/                        # embeddings.db stored here (auto-generated)
 ├── requirements.txt
 ├── .env                           # Set DOCS_PATH here
 └── .env.example
@@ -91,7 +92,7 @@ Your Documents (TXT / PDF / DOCX)
   [ Embedding Generator ]  →  vectors via Foundry Local
         │
         ▼
-  [ Embedding Store ]  →  saved to vector/embeddings.json
+  [ Embedding Store ]  →  saved to vector/embeddings.db (SQLite)
         │
    User Query
         │
@@ -154,6 +155,7 @@ Building this project gave me hands-on experience with:
 - Designing a modular, layered Python project from scratch
 - Debugging import errors, module structure issues, and model initialization
 - Building a fully offline AI system with zero external API calls
+- Storing and querying structured data with SQLite
 
 ---
 
