@@ -2,6 +2,8 @@
 
 An offline Retrieval-Augmented Generation (RAG) assistant built with Python and Microsoft Foundry Local — runs fully without internet or cloud APIs.
 
+> Built as part of the **Microsoft AI Innovators Summer School** program.
+
 ---
 
 ## Demo
@@ -18,11 +20,14 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 - **Embedding generation** — semantic vector representations via Foundry Local SDK
 - **Embedding persistence** — embeddings saved to SQLite database, no recalculation on restart
 - **Semantic similarity search** — finds the most relevant chunks for each query
+- **Smart retrieval pipeline** — candidate pre-filtering, relative score filtering (%75 rule), and source preference for follow-up queries
 - **Retrieval-Augmented Generation (RAG)** — grounds LLM answers in your documents
-- **Conversation history** — remembers previous questions within a session
+- **Conversation history** — remembers previous questions within a session; follow-up queries are automatically enriched with prior context
+- **Confidence-based early exit** — if retrieved chunks fall below the confidence threshold, the LLM is skipped and a clear "not enough info" message is returned instead
 - **Source filtering** — use `[foldername]` tag to search only within a specific folder
 - **Environment-based config** — document path set via `.env`, no hardcoded paths
 - **Local LLM integration** — via Microsoft Foundry Local SDK, no cloud required
+- **`<think>` token suppression** — Qwen model internal reasoning is stripped from output
 - **Modular project architecture** — clean separation of ingestion, retrieval, and generation
 - **Fully offline workflow** — your data never leaves your machine
 
@@ -48,6 +53,7 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 local-rag-ai-assistant/
 │
 ├── app/
+│   ├── config.py                  # Central config (thresholds, chunk size, model names)
 │   ├── ingestion/
 │   │   ├── document_loader.py     # TXT, PDF, DOCX loading with folder recursion
 │   │   ├── text_splitter.py       # Chunk splitting logic
@@ -56,16 +62,16 @@ local-rag-ai-assistant/
 │   │
 │   ├── retrieval/
 │   │   ├── vector_store.py        # Cosine similarity
-│   │   └── retriever.py           # Top-k semantic search
+│   │   └── retriever.py           # Top-k semantic search with score thresholding
 │   │
 │   ├── llm/
 │   │   ├── local_llm.py           # Foundry Local initialization
-│   │   └── prompt_templates.py    # System prompt builder
+│   │   └── prompt_templates.py    # System prompt builder with conversation history
 │   │
 │   ├── utils/
-│   │   └── helpers.py             # Answer cleaning
+│   │   └── helpers.py             # Answer cleaning, <think> suppression
 │   │
-│   ├── rag_pipeline.py            # End-to-end RAG logic
+│   ├── rag_pipeline.py            # End-to-end RAG logic with smart filtering
 │   └── main.py                    # Entry point
 │
 ├── data/                          # Default document folder
@@ -97,14 +103,38 @@ Your Documents (TXT / PDF / DOCX)
    User Query
         │
         ▼
-  [ Retriever ]  →  top-k relevant chunks (with optional source filter)
+  [ Query Enrichment ]  →  follow-up queries enriched with conversation history
+        │
+        ▼
+  [ Retriever ]  →  top-k candidates (with optional source filter)
+        │
+        ▼
+  [ Score Filtering ]
+    ├─ Absolute threshold  (min_score_threshold = 0.45)
+    └─ Relative filter     (%75 rule — drops chunks far below best score)
+        │
+        ▼
+  [ Confidence Check ]  →  if score < 0.60, skip LLM and return early message
         │
         ▼
   [ LLM (Foundry Local) ]
         │
         ▼
-     Answer ✓
+  [ <think> suppression ]  →  strips internal reasoning from Qwen output
+        │
+        ▼
+     Answer + Source Citation ✓
 ```
+
+---
+
+## Configuration (`app/config.py`)
+
+| Parameter | Value | Description |
+|---|---|---|
+| `retrieval_candidate_k` | `10` | Initial candidate pool size before filtering |
+| `min_score_threshold` | `0.45` | Absolute minimum — chunks below this are discarded |
+| `min_confidence_score` | `0.60` | If top score is below this on ambiguous queries, LLM is not called |
 
 ---
 
@@ -156,19 +186,23 @@ Building this project gave me hands-on experience with:
 - Debugging import errors, module structure issues, and model initialization
 - Building a fully offline AI system with zero external API calls
 - Storing and querying structured data with SQLite
+- Tuning retrieval quality with score thresholds and relative filtering strategies
+- Making follow-up queries work correctly by enriching them with prior context
 
 ---
 
 ## Challenges I Faced
 
 - Handling different document encodings and formats consistently
-- Getting the Foundry Local SDK initialized correctly
+- Getting the Foundry Local SDK initialized correctly (`alias` vs `name` attribute)
 - Tuning chunk size and overlap for better retrieval quality
 - Structuring the project so each module stays independent and testable
-- Suppressing `<think>` reasoning tokens from model output using regex
+- Suppressing `<think>` reasoning tokens from Qwen model output using regex
 - Scanned PDFs returning only `\n` characters — solved with a minimum content length filter
-- Unrelated documents scoring high in retrieval — solved with source filtering by folder tag
-- Large embedding models (8b) being too slow for local use — reverted to 0.6b
+- Unrelated documents scoring high in retrieval — solved with source filtering and relative score filter
+- Large embedding models (8b) being too slow for local use — reverted to `qwen3-embedding-0.6b`
+- Preventing hallucination on vague queries — solved with confidence-based early exit before LLM call
+- Follow-up queries losing context — solved by enriching queries with conversation history
 
 ---
 
