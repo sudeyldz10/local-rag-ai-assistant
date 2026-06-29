@@ -2,7 +2,6 @@
 
 An offline Retrieval-Augmented Generation (RAG) assistant built with Python and Microsoft Foundry Local — runs fully without internet or cloud APIs.
 
-> Built as part of the **Microsoft AI Innovators Summer School** program.
 
 ---
 
