@@ -22,6 +22,44 @@ def load_docx(file_path):
     text="\n".join(parapraghs)
     return text
 
+def load_png(file_path):
+    text=""
+    image= fitz.open(file_path)
+    for page in image:
+        text+= page.get_text()
+
+def load_jpg(file_path):
+    return load_png(file_path)
+
+def load_jpeg(file_path):
+    return load_png(file_path)
+
+def load_md(file_path):
+    with open(file_path, "r", encoding="utf-8") as f:
+        text = f.read()
+        return text
+    
+def load_pptx(file_path):
+    from pptx import Presentation
+    prs = Presentation(file_path)
+    text=""
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                text+= shape.text + ""
+    return text
+
+def load_xlsx(file_path):
+    import openpyxl
+    wb =openpyxl.load_workbook(file_path)
+    text=""
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows(values_only=True):
+            for cell in row:
+                if cell is not None:
+                    text+= str(cell) + " "
+    return text
+            
 
 
 def load_single_file(file_path):
@@ -31,12 +69,22 @@ def load_single_file(file_path):
         return load_pdf(file_path)
     elif file_path.endswith(".docx"):
         return load_docx(file_path)
+    elif file_path.endswith(".png"):
+        return load_png(file_path)
+    elif file_path.endswith(".jpg") or file_path.endswith(".jpeg"):
+        return load_jpg(file_path) or load_jpeg(file_path)
+    elif file_path.endswith(".md"):
+        return load_md(file_path)
+    elif file_path.endswith(".pptx"):
+        return load_pptx(file_path)
+    elif file_path.endswith(".xlsx"):
+        return load_xlsx(file_path)
     else:
         print(f"unsupported formats: {file_path}")
         return None
 
 def load_documents(data_dir="data"):
-    supported={".txt", ".pdf", ".docx"}
+    supported={".txt", ".pdf", ".docx", ".md", ".png", ".jpg", ".jpeg", ".pptx", ".xlsx"}
     all_docs=[]
 
 

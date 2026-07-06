@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LocalRAG Dashboard</title>
+<link rel="stylesheet" href="main.css">
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+  window.mermaid = mermaid;
+</script>
+</head>
+<body>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand-row">
+      <div class="brand">
+        <div class="brand-icon">⚙</div>
+        <div class="brand-name">LocalRAG</div>
+      </div>
+      <button class="sidebar-toggle-btn" id="sidebarToggleBtn">☰</button>
+    </div>
+
+    <div class="nav-label">MAIN</div>
+    <div class="nav-link" data-view="new-chat">+ New Chat</div>
+    <div class="nav-link active" data-view="chat"> Chat</div>
+    <div class="nav-link" data-view="dashboard"> Knowledge Base</div>
+    <div class="nav-link" data-view="model-Info">Model Information</div>
+    <div class="nav-link" data-view="settings"> Settings</div>
+
+    <div class="nav-label">STORAGE</div>
+    <div class="nav-link" data-view="local-files"> Local Files</div>
+    <div class="nav-link" data-view="documents"> Documents</div>
+    <div class="nav-link" data-view="query-history"> Query History</div>
+
+    <div class="sidebar-footer">
+      <span class="dot-green"></span> Connected: Localhost
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="viewTitle">Chat</h1>
+        <div class="subtitle" id="viewSubtitle">Ask your local knowledge base</div>
+      </div>
+      <div class="topbar-right"></div>
+    </div>
+
+    <div class="view active" id="view-chat">
+      <div class="chat-view-body" id="chatArea">
+        <div class="chat-empty" id="chatEmptyState">You haven't asked any questions yet. Start typing below.</div>
+      </div>
+      <div class="chat-input-wrap">
+        <div class="chat-input-bar">
+          <input id="queryInput" placeholder="System initializing..." autocomplete="off" disabled>
+          <button class="chat-send-btn" id="sendBtn" disabled>↑</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-dashboard">
+      <div class="content">
+        <div class="kb-card">
+          <div class="kb-card-header"> Knowledge Base</div>
+          <div class="kb-count">0 <span class="kb-count-label">indexed docs</span></div>
+          <div class="kb-delta">↗ +0 today</div>
+
+          <div class="kb-stats">
+            <div class="kb-stat"><div class="num">0</div><div class="label">PDFs</div></div>
+            <div class="kb-stat"><div class="num">0</div><div class="label">TXTs</div></div>
+            <div class="kb-stat"><div class="num">0</div><div class="label">DOCX</div></div>
+            <div class="kb-stat"><div class="num">0</div><div class="label">MDs</div></div>
+            <div class="kb-stat"><div class="num">0</div><div class="label">JPGs</div></div>
+            <div class="kb-stat"><div class="num">0</div><div class="label">JPEGs</div></div>
+            <div class="kb-stat"><div class="num">0</div><div class="label">PNGs</div></div>
+            <div class="kb-stat"><div class="num">0</div><div class="label">PPTX</div></div>
+            <div class="kb-stat"><div class="num">0</div><div class="label">XLSX</div></div>
+          </div>
+
+          <button class="resync-btn">↻ Re-sync Local Index</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-model-management">
+      <div class="content">
+        <div class="kb-card">
+          <div class="kb-card-header">Model Information</div>
+          <div class="model-info">
+            <div class="model-info-item"> Embedding Model: qwen3-embedding-0.6b</div>
+            <div class="model-info-item"> Chat Model: qwen3-4b </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-query-history">
+      <div class="content">
+        <div class="kb-card">
+          <div class="kb-card-header">Query History</div>
+          <div class="query-history" id="queryHistoryList">
+            <div class="query-history-item">No queries yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-local-files">
+      <div class="content">
+        <div class="kb-card">
+          <div class="kb-card-header">Local Files</div>
+          <div class="local-files" id="localFilesList">
+            <div class="local-file-item">No local files yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-documents">
+      <div class="content">
+        <div class="kb-card">
+          <div class="kb-card-header">Documents</div>
+          <div class="documents-item">No documents yet</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="status-footer"></div>
+  </main>
+
+  <script>
+    window.MathJax = {
+      tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']]
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+    }
+  };
+
+    
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+    if (sidebarToggleBtn && sidebar) {
+      sidebarToggleBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('closed');
+      });
+    }
+
+   
+    const viewTitle = document.getElementById('viewTitle');
+    const viewSubtitle = document.getElementById('viewSubtitle');
+    const viewMeta = {
+      chat: { title: 'Chat', subtitle: 'Ask your local knowledge base' },
+      dashboard: { title: 'AI Assistant', subtitle: 'System Overview' },
+      'query-history': { title: 'Query History', subtitle: 'Past conversations' },
+      'local-files': { title: 'Local Files', subtitle: 'Indexed documents on disk' }
+    };
+
+    document.querySelectorAll('.nav-link[data-view]').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+
+        const target = link.dataset.view;
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById('view-' + target).classList.add('active');
+
+        viewTitle.textContent = viewMeta[target].title;
+        viewSubtitle.textContent = viewMeta[target].subtitle;
+
+        if (target === 'dashboard') refreshStats();
+        if (target === 'query-history') refreshQueryHistory();
+        if (target === 'local-files') refreshLocalFiles();
+      });
+    });
+
+
+    
+    const chatArea = document.getElementById('chatArea');
+    const queryInput = document.getElementById('queryInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    function nowTime() {
+      const d = new Date();
+      return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+    }
+
+    function hideEmptyState() {
+      const el = document.getElementById('chatEmptyState');
+      if (el) el.remove();
+    }
+
+    function clearChatUI() {
+      chatArea.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'chat-empty';
+      empty.id = 'chatEmptyState';
+      empty.textContent = "You haven't asked any questions yet. Start typing below.";
+      chatArea.appendChild(empty);
+    }
+
+    function addUserMessage(text) {
+      hideEmptyState();
+      const row = document.createElement('div');
+      row.className = 'msg-row user';
+      row.innerHTML = `<div class="bubble-user"></div><div class="chat-timestamp">${nowTime()}</div>`;
+      row.querySelector('.bubble-user').textContent = text;
+      chatArea.appendChild(row);
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function addBotMessage(text, isError = false) {
+      hideEmptyState();
+      const row = document.createElement('div');
+      row.className = 'msg-row bot';
+      row.innerHTML = `
+      <div class="chat-avatar">✦</div>
+      <div class="bot-content">
+      <div class="bubble-bot"></div>
+      <div class="chat-timestamp">${nowTime()}</div>
+    </div>`;
+  const bubble = row.querySelector('.bubble-bot');
+
+  const mermaidMatch = text.match(/```mermaid\s*([\s\S]*?)```/);
+  if (mermaidMatch) {
+    const beforeText = text.slice(0, mermaidMatch.index).trim();
+    const afterText = text.slice(mermaidMatch.index + mermaidMatch[0].length).trim();
+    const diagramCode = mermaidMatch[1].trim();
+
+    let html = '';
+    if (beforeText) html += `<div>${escapeHtml(beforeText)}</div>`;
+    html += `<div class="mermaid-diagram">${diagramCode}</div>`;
+    if (afterText) html += `<div>${escapeHtml(afterText)}</div>`;
+
+    bubble.innerHTML = html;
+
+    chatArea.appendChild(row);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    const diagramEl = bubble.querySelector('.mermaid-diagram');
+    if (window.mermaid && diagramEl) {
+      window.mermaid.render('mermaid-' + Date.now(), diagramCode)
+        .then(({ svg }) => { diagramEl.innerHTML = svg; })
+        .catch(err => {
+          console.error('Mermaid render error:', err);
+          diagramEl.textContent = diagramCode; // fallback: show raw code
+        });
+    }
+  } else {
+    const escaped = escapeHtml(text);
+    bubble.innerHTML = escaped;
+    chatArea.appendChild(row);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    if (window.MathJax && window.MathJax.typesetPromise) {
+      MathJax.typesetPromise([bubble]).catch(err => console.error('MathJax error:', err));
+    }
+  }
+
+  if (isError) bubble.style.color = '#c0392b';
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+
+    function addLoadingMessage() {
+      hideEmptyState();
+      const row = document.createElement('div');
+      row.className = 'msg-row bot';
+      row.id = 'loadingMsg';
+      row.innerHTML = `<div class="chat-avatar">✦</div><div class="bot-content"><div class="bubble-bot">Thinking...</div></div>`;
+      chatArea.appendChild(row);
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function removeLoadingMessage() {
+      const el = document.getElementById('loadingMsg');
+      if (el) el.remove();
+    }
+
+
+    
+    async function onNewChatClick() {
+      await window.pywebview.api.new_chat();
+      clearChatUI();
+    }
+
+    const newChatLink = document.querySelector('.nav-link[data-view="new-chat"]');
+    newChatLink.addEventListener('click', onNewChatClick);
+
+
+    
+    async function sendQuestion() {
+      const query = queryInput.value.trim();
+      if (!query) return;
+
+      addUserMessage(query);
+      queryInput.value = '';
+      sendBtn.disabled = true;
+      addLoadingMessage();
+
+      try {
+        const result = await window.pywebview.api.ask(query);
+        removeLoadingMessage();
+        if (result.error) {
+          addBotMessage('An error occurred: ' + result.error, true);
+        } else {
+          addBotMessage(result.answer);
+        }
+      } catch (err) {
+        removeLoadingMessage();
+        addBotMessage('Backend connection error: ' + err, true);
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.addEventListener('click', sendQuestion);
+    queryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendQuestion();
+    });
+
+
+   
+    async function refreshQueryHistory() {
+      const listEl = document.getElementById('queryHistoryList');
+      try {
+        const chats = await window.pywebview.api.list_chats();
+        if (!chats || chats.length === 0) {
+          listEl.innerHTML = '<div class="query-history-item">No queries yet</div>';
+          return;
+        }
+
+        listEl.innerHTML = '';
+        chats.forEach(chat => {
+          const item = document.createElement('div');
+          item.className = 'query-history-item';
+          item.style.cursor = 'pointer';
+          item.textContent = chat.title || 'Untitled chat';
+          item.addEventListener('click', () => openChatFromHistory(chat.chat_id));
+          listEl.appendChild(item);
+        });
+      } catch (err) {
+        console.error('Query history could not be loaded:', err);
+      }
+    }
+
+    async function openChatFromHistory(chatId) {
+      try {
+        const result = await window.pywebview.api.switch_chat(chatId);
+        clearChatUI();
+
+        if (result.messages && result.messages.length > 0) {
+          hideEmptyState();
+          result.messages.forEach(msg => {
+            if (msg.role === 'user') addUserMessage(msg.content);
+            else addBotMessage(msg.content);
+          });
+        }
+
+        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+        document.querySelector('.nav-link[data-view="chat"]').classList.add('active');
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById('view-chat').classList.add('active');
+        viewTitle.textContent = viewMeta.chat.title;
+        viewSubtitle.textContent = viewMeta.chat.subtitle;
+      } catch (err) {
+        console.error('Chat could not be loaded:', err);
+      }
+    }
+
+
+    
+    async function refreshLocalFiles() {
+      const listEl = document.getElementById('localFilesList');
+      try {
+        const result = await window.pywebview.api.list_local_files();
+        if (!result.files || result.files.length === 0) {
+          listEl.innerHTML = '<div class="local-file-item">No local files yet</div>';
+          return;
+        }
+
+        listEl.innerHTML = '';
+        result.files.forEach(path => {
+          const item = document.createElement('div');
+          item.className = 'local-file-item';
+          item.textContent = path.split('/').pop();
+          listEl.appendChild(item);
+        });
+      } catch (err) {
+        console.error('Local files could not be loaded:', err);
+      }
+    }
+
+
+    
+    const kbCountEl = document.querySelector('.kb-count');
+    const statNums = document.querySelectorAll('.kb-stat .num');
+    const resyncBtn = document.querySelector('.resync-btn');
+
+    async function refreshStats() {
+      try {
+        const stats = await window.pywebview.api.get_stats();
+        if (!stats.ready) return;
+
+        kbCountEl.childNodes[0].nodeValue = stats.total.toLocaleString('en-US') + ' ';
+        statNums[0].textContent = stats.pdfs.toLocaleString('en-US');
+        statNums[1].textContent = stats.txts.toLocaleString('en-US');
+        statNums[2].textContent = (stats.docxs || 0).toLocaleString('en-US');
+        statNums[3].textContent = (stats.mds || 0).toLocaleString('en-US');
+        statNums[4].textContent = (stats.jpgs || 0).toLocaleString('en-US');
+        statNums[5].textContent = (stats.pngs || 0).toLocaleString('en-US');
+        statNums[6].textContent = (stats.pptxs || 0).toLocaleString('en-US');
+        statNums[7].textContent = (stats.xlsx || 0).toLocaleString('en-US');
+        statNums[8].textContent = (stats.jpegs || 0).toLocaleString('en-US');
+
+      } catch (err) {
+        console.error('Stats could not be loaded:', err);
+      }
+    }
+
+    resyncBtn.addEventListener('click', async () => {
+      const original = resyncBtn.innerHTML;
+      resyncBtn.innerHTML = '↻ Syncing...';
+      resyncBtn.disabled = true;
+      try {
+        const result = await window.pywebview.api.resync_index();
+        if (result.status === 'ok') await refreshStats();
+        else console.error('Re-sync error:', result.error);
+      } catch (err) {
+        console.error('Re-sync failed:', err);
+      } finally {
+        resyncBtn.innerHTML = original;
+        resyncBtn.disabled = false;
+      }
+    });
+
+
+    
+    function markReady() {
+      queryInput.disabled = false;
+      sendBtn.disabled = false;
+      queryInput.placeholder = 'Ask something...';
+    }
+
+    window.addEventListener('pywebviewready', () => {
+      refreshStats();
+      const check = setInterval(async () => {
+        const stats = await window.pywebview.api.get_stats();
+        if (stats.ready) {
+          markReady();
+          clearInterval(check);
+        }
+      }, 1500);
+    });
+  </script>
+  <script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js"></script>
+
+
+</body>
+</html>

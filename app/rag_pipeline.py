@@ -64,18 +64,20 @@ def _apply_source_preference(results, docs, preferred_source):
 
     return (preferred + others)[:top_k]
 
-
-def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, history=[]):
+def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, history=None):
     
-    source_filter=None
+    if history is None:
+        history = []
+    
+    source_filter = None
     if query.startswith("[") and "]" in query:
-        tag_end=query.index("]")
-        source_filter=query[1:tag_end].lower()
-        query=query[tag_end+1:].strip()
+        tag_end = query.index("]")
+        source_filter = query[1:tag_end].lower()
+        query = query[tag_end+1:].strip()
 
     enriched_query = _build_enriched_query(query, history)
 
-    query_embedding= generate_query_embedding(enriched_query, embedding_client)
+    query_embedding = generate_query_embedding(enriched_query, embedding_client)
     results = find_relevant(query_embedding, doc_embeddings, k=retrieval_candidate_k)
     results = _apply_relative_score_filter(results)
 
@@ -86,11 +88,11 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, his
         results = results[:top_k]
     
     if source_filter:
-        filtered=[]
+        filtered = []
         for i, score in results:
             if source_filter in docs[i]["source"].lower():
-                filtered.append((i,score))
-        results= filtered
+                filtered.append((i, score))
+        results = filtered
 
     if not results:
         answer = (
@@ -116,17 +118,14 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, his
         doc = docs[i]
         print(f"Score: {score:.4f} | {doc['source']}")
 
-
     context = ""
     for chunk_number, (index, score) in enumerate(results, start=1):
         doc = docs[index]
-
         context += (
             f"[Chunk {chunk_number}]\n"
             f"Source: {doc['source']}\n"
             f"{doc['text']}\n\n"
         )
-
 
     messages = [
         {
@@ -140,10 +139,7 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, his
     
     messages.append({"role": "user", "content": query})
 
-
     full_answer = ""
-
-
     for chunk in chat_client.complete_streaming_chat(messages):
         if not chunk.choices:
             continue
@@ -152,35 +148,31 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, his
                 
         if content:
             full_answer += content
-    
+
     answer = clean_answer(full_answer)
 
+    used_chunk_match = re.search(
+        r"\**USED[\s_]?CHUNK\**:?\s*(\d+)",
+        answer,
+        re.IGNORECASE
+    )
 
-
-    used_chunk_match= re.search(
-        r"USED_CHUNK:\s*(\d+)", 
-        answer
-    )   
     if used_chunk_match:
-        used_chunk_number= int(
-            used_chunk_match.group(1)
-        )
-        real_doc_index= results[used_chunk_number -1][0]
+        used_chunk_number = int(used_chunk_match.group(1))
+        real_doc_index = results[used_chunk_number - 1][0]
 
-        source_name= os.path.basename(
-            docs[real_doc_index]["source"]
-        )
+        source_name = os.path.basename(docs[real_doc_index]["source"])
 
-        answer=re.sub(
-            r"USED_CHUNK:\s*\d+",
+        answer = re.sub(
+            r"\**USED[\s_]?CHUNK\**:?\s*\d+",
             "",
-            answer
+            answer,
+            flags=re.IGNORECASE
         ).strip()
 
-        answer+= "\n\nSource: " + source_name
+        answer += "\n\nSource: " + source_name
 
     history.append({"role": "user", "content": query})
     history.append({"role": "assistant", "content": answer})
 
-
-    return answer, history 
+    return answer, history
