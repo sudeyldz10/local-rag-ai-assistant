@@ -25,7 +25,7 @@
     <div class="nav-link" data-view="new-chat">+ New Chat</div>
     <div class="nav-link active" data-view="chat"> Chat</div>
     <div class="nav-link" data-view="dashboard"> Knowledge Base</div>
-    <div class="nav-link" data-view="model-Info">Model Information</div>
+    <div class="nav-link" data-view="model-management">Model Information</div>
     <div class="nav-link" data-view="settings"> Settings</div>
 
     <div class="nav-label">STORAGE</div>
@@ -37,6 +37,7 @@
       <span class="dot-green"></span> Connected: Localhost
     </div>
   </aside>
+  <button class="sidebar-open-btn" id="sidebarOpenBtn">☰</button>
 
   <main class="main">
     <div class="topbar">
@@ -126,6 +127,15 @@
       </div>
     </div>
 
+    <div class="view" id="view-settings">
+      <div class="content">
+        <div class="kb-card">
+          <div class="kb-card-header">Settings</div>
+          <div class="settings-item">Settings coming soon</div>
+        </div>
+      </div>
+    </div>
+
     <div class="status-footer"></div>
   </main>
 
@@ -143,33 +153,52 @@
     
     const sidebar = document.getElementById('sidebar');
     const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+    const sidebarOpenBtn = document.getElementById('sidebarOpenBtn');
+
     if (sidebarToggleBtn && sidebar) {
       sidebarToggleBtn.addEventListener('click', () => {
         sidebar.classList.toggle('closed');
+      });
+    }
+    if (sidebarOpenBtn && sidebar) {
+      sidebarOpenBtn.addEventListener('click', () => {
+        sidebar.classList.remove('closed');
       });
     }
 
    
     const viewTitle = document.getElementById('viewTitle');
     const viewSubtitle = document.getElementById('viewSubtitle');
+
     const viewMeta = {
       chat: { title: 'Chat', subtitle: 'Ask your local knowledge base' },
       dashboard: { title: 'AI Assistant', subtitle: 'System Overview' },
       'query-history': { title: 'Query History', subtitle: 'Past conversations' },
-      'local-files': { title: 'Local Files', subtitle: 'Indexed documents on disk' }
+      'local-files': { title: 'Local Files', subtitle: 'Indexed documents on disk' },
+      documents: { title: 'Documents', subtitle: 'Uploaded source documents' },
+      settings: { title: 'Settings', subtitle: 'App preferences' },
+      'model-management': { title: 'Model Information', subtitle: 'Active local models' }
     };
 
     document.querySelectorAll('.nav-link[data-view]').forEach(link => {
       link.addEventListener('click', () => {
+        const target = link.dataset.view;
+        const meta = viewMeta[target];
+
+        const targetView = document.getElementById('view-' + target);
+        if (!meta || !targetView) {
+          console.error(`No view/meta found for "${target}" - check viewMeta and view-${target} container`);
+          return;
+        }
+
         document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
         link.classList.add('active');
 
-        const target = link.dataset.view;
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-        document.getElementById('view-' + target).classList.add('active');
+        targetView.classList.add('active');
 
-        viewTitle.textContent = viewMeta[target].title;
-        viewSubtitle.textContent = viewMeta[target].subtitle;
+        viewTitle.textContent = meta.title;
+        viewSubtitle.textContent = meta.subtitle;
 
         if (target === 'dashboard') refreshStats();
         if (target === 'query-history') refreshQueryHistory();
@@ -246,7 +275,7 @@
         .then(({ svg }) => { diagramEl.innerHTML = svg; })
         .catch(err => {
           console.error('Mermaid render error:', err);
-          diagramEl.textContent = diagramCode; // fallback: show raw code
+          diagramEl.textContent = diagramCode; 
         });
     }
   } else {
@@ -417,10 +446,10 @@ function escapeHtml(text) {
         statNums[2].textContent = (stats.docxs || 0).toLocaleString('en-US');
         statNums[3].textContent = (stats.mds || 0).toLocaleString('en-US');
         statNums[4].textContent = (stats.jpgs || 0).toLocaleString('en-US');
-        statNums[5].textContent = (stats.pngs || 0).toLocaleString('en-US');
-        statNums[6].textContent = (stats.pptxs || 0).toLocaleString('en-US');
-        statNums[7].textContent = (stats.xlsx || 0).toLocaleString('en-US');
-        statNums[8].textContent = (stats.jpegs || 0).toLocaleString('en-US');
+        statNums[5].textContent = (stats.jpegs || 0).toLocaleString('en-US');
+        statNums[6].textContent = (stats.pngs || 0).toLocaleString('en-US');
+        statNums[7].textContent = (stats.pptxs || 0).toLocaleString('en-US');
+        statNums[8].textContent = (stats.xlsx || 0).toLocaleString('en-US');
 
       } catch (err) {
         console.error('Stats could not be loaded:', err);
@@ -429,17 +458,23 @@ function escapeHtml(text) {
 
     resyncBtn.addEventListener('click', async () => {
       const original = resyncBtn.innerHTML;
-      resyncBtn.innerHTML = '↻ Syncing...';
+      resyncBtn.innerHTML = '↻ Syncing... (this may take long time)';
       resyncBtn.disabled = true;
       try {
         const result = await window.pywebview.api.resync_index();
-        if (result.status === 'ok') await refreshStats();
-        else console.error('Re-sync error:', result.error);
+        if (result.status === 'ok') {
+          await refreshStats();
+          resyncBtn.innerHTML = `✓ Completed (${result.total} chunk)`;
+        } else {
+          console.error('Re-sync error:', result.error);
+          resyncBtn.innerHTML = `✗ Error: ${result.error}`;
+        }
       } catch (err) {
         console.error('Re-sync failed:', err);
+        resyncBtn.innerHTML = `✗ Error: ${err}`;
       } finally {
-        resyncBtn.innerHTML = original;
         resyncBtn.disabled = false;
+        setTimeout(() => { resyncBtn.innerHTML = original; }, 4000);
       }
     });
 
