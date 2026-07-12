@@ -30,7 +30,9 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 - **Diagram rendering** — on request, the assistant can generate simple network/flow diagrams (via Mermaid)
 - **Environment-based config** — document path set via `.env`, no hardcoded paths
 - **Local LLM integration** — via Microsoft Foundry Local SDK, no cloud required
-- **`<think>` token suppression** — Qwen model internal reasoning is stripped from output
+- **`<think>` token suppression** — Qwen model internal reasoning is stripped from output, including cases where the model gets cut off mid-reasoning without a closing tag
+- **Repetition-loop safeguard** — detects when the model falls into a repetitive output loop and stops generation early instead of flooding the chat
+- **Incremental re-sync** — re-syncing only embeds newly added files instead of reprocessing the entire knowledge base from scratch
 - **Modular project architecture** — clean separation of ingestion, retrieval, generation, and UI
 - **Fully offline workflow** — your data never leaves your machine
 
@@ -235,6 +237,11 @@ Building this project gave me hands-on experience with:
 - Small local models breaking down into repetitive output when given overly long, detailed prompts — solved by simplifying the system prompt
 - Race conditions between UI polling and backend initialization causing crashes — solved with defensive checks in the stats endpoint
 - Rendering LaTeX and diagram syntax cleanly in a lightweight desktop UI without a heavy frontend framework
+- Brute-force cosine similarity search becoming a bottleneck at scale — replaced the per-query Python loop with a vectorized NumPy operation, cutting retrieval time by ~99% on repeated queries
+- Sidebar close button living inside the collapsible sidebar itself, making it impossible to reopen once closed — solved with a separate persistent open button outside the sidebar
+- Knowledge base stat counters (PPTX/XLSX/PNG/JPEG) showing wrong numbers due to a DOM-order/array-index mismatch in the frontend
+- Sidebar navigation breaking silently when a tab's `data-view` attribute didn't match its content container's `id` — fixed by cross-checking every nav link against its view container and adding a defensive fallback instead of a hard crash
+- The model occasionally falling into an infinite repetition loop on complex prompts — solved by detecting repeated output mid-stream and stopping generation early
 
 ---
 
