@@ -241,13 +241,57 @@ class Api:
 
     def resync_index(self):
         try:
-            manager = initialize_foundry()
-            documents = load_documents("/Users/sudeyildiz1012/Desktop/DERSLER")
-            self.chunks = split_documents(documents)
-            self.embedding_client = load_embedding_model(manager)
-            self.doc_embeddings = generate_document_embeddings(self.chunks, self.embedding_client)
+            data_dir = "/Users/sudeyildiz1012/Desktop/DERSLER"
+
+            if self.chunks:
+                already_indexed_chunks = self.chunks
+            else:
+                already_indexed_chunks = []
+
+            already_indexed_paths = set()
+            for chunk in already_indexed_chunks:
+                already_indexed_paths.add(chunk["source"])
+
+            all_documents = load_documents(data_dir)
+
+            new_documents = []
+            for doc in all_documents:
+                if doc["source"] not in already_indexed_paths:
+                    new_documents.append(doc)
+
+            if len(new_documents) == 0:
+                return {
+                    "status": "ok",
+                    "total": len(already_indexed_chunks),
+                    "added": 0
+                }
+            
+            new_chunks = split_documents(new_documents)
+
+            
+            if self.embedding_client is None:
+                manager = initialize_foundry()
+                self.embedding_client = load_embedding_model(manager)
+
+    
+            new_embeddings = generate_document_embeddings(new_chunks, self.embedding_client)
+
+            if self.doc_embeddings:
+                existing_embeddings = self.doc_embeddings
+            else:
+                existing_embeddings = []
+
+            self.chunks = already_indexed_chunks + new_chunks
+            self.doc_embeddings = existing_embeddings + new_embeddings
+
             save_embeddings(self.chunks, self.doc_embeddings, EMBEDDINGS_PATH)
-            return {"status": "ok", "total": len(self.chunks)}
+            return {
+                "status": "ok",
+                "total": len(self.chunks),
+                "added": len(new_chunks),
+                "new_files": len(new_documents)
+            }
+
         except Exception as e:
             return {"status": "error", "error": str(e)}
 

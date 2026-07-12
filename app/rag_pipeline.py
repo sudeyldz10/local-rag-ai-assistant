@@ -11,9 +11,38 @@ VAGUE_FOLLOWUP = re.compile(
     re.IGNORECASE,
 )
 
+MAX_WORDS_FOR_FOLLOWUP = 6
+def _is_repeating(text, window=60, min_repeats=4):
+    """
+    Detects when the model has fallen into a repetition loop - a known
+    failure mode where a small local LLM gets stuck repeating the same
+    chunk of text over and over instead of finishing its answer.
+
+    Looks at the END of the text and checks whether the same block of
+    `window` characters shows up right after itself, back-to-back, at
+    least `min_repeats` times in a row.
+    """
+    needed_length = window * min_repeats
+    if len(text) < needed_length:
+        return False
+
+    tail = text[-needed_length:]
+    pattern = tail[:window]
+
+    repeats = 0
+    position = 0
+    while tail[position:position + window] == pattern:
+        repeats += 1
+        position += window
+        if repeats >= min_repeats:
+            return True
+
+    return False
+
 
 def _is_vague_followup(query):
-    return bool(VAGUE_FOLLOWUP.search(query))
+    word_count = len(query.split())
+    return word_count <= MAX_WORDS_FOR_FOLLOWUP and bool(VAGUE_FOLLOWUP.search(query))
 
 
 def _extract_last_source(history):
@@ -140,16 +169,31 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, his
     messages.append({"role": "user", "content": query})
 
     full_answer = ""
+    stopped_early = False
+
     for chunk in chat_client.complete_streaming_chat(messages):
         if not chunk.choices:
             continue
-                
+
         content = chunk.choices[0].delta.content
-                
+
         if content:
             full_answer += content
+            if _is_repeating(full_answer):
+                print("Repetition detected in model output - stopping generation early.")
+                stopped_early = True
+                break
 
     answer = clean_answer(full_answer)
+
+    if not answer:
+        
+        answer = (
+            "The model got stuck generating a response. "
+            "Please try rephrasing your question or asking again."
+        )
+    elif stopped_early:
+        answer += "\n\n_(Response was cut short - the model started repeating itself.)_"
 
     used_chunk_match = re.search(
         r"\**USED[\s_]?CHUNK\**:?\s*(\d+)",
