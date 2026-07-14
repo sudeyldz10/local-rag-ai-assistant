@@ -10,6 +10,22 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 
 ---
 
+## Screenshots
+
+**Model Information**
+![Model Information](assets/screenshot-model-info.png)
+
+**Local Files**
+![Local Files](assets/screenshot-local-files.png)
+
+**Documents**
+![Documents](assets/screenshot-documents.png)
+
+**Settings**
+![Settings](assets/screenshot-settings.png)
+
+---
+
 ## Features
 
 - **Desktop UI** — native app window built with pywebview (chat, knowledge base dashboard, model info, settings)
