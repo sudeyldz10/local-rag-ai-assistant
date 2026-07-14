@@ -16,13 +16,16 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 ![Model Information](assets/screenshot-model-info.png)
 
 **Local Files**
-![Local Files](assets/screenshot-local-files.png)
+![Local Files](assets/screenshot-local-files.gif)
 
 **Documents**
-![Documents](assets/screenshot-documents.png)
+![Documents](assets/screenshot-documents.gif)
 
 **Settings**
 ![Settings](assets/screenshot-settings.png)
+
+**Query History**
+![query History](assets/screenshot-query-history.gif)
 
 ---
 
