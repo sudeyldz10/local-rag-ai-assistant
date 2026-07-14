@@ -33,6 +33,10 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 - **`<think>` token suppression** — Qwen model internal reasoning is stripped from output, including cases where the model gets cut off mid-reasoning without a closing tag
 - **Repetition-loop safeguard** — detects when the model falls into a repetitive output loop and stops generation early instead of flooding the chat
 - **Incremental re-sync** — re-syncing only embeds newly added files instead of reprocessing the entire knowledge base from scratch
+- **Model Information panel** — view the active embedding/chat model names, runtime, total query count, and current retrieval top-k at a glance
+- **Local Files browser** — see every file currently scanned from your documents folder
+- **Documents panel** — per-file chunk counts, showing exactly how each source document was split during ingestion
+- **In-app Settings panel** — adjust retrieval parameters (top-k, candidate-k, score thresholds, relative score ratio) directly from the UI, no need to edit `config.py` by hand
 - **Modular project architecture** — clean separation of ingestion, retrieval, generation, and UI
 - **Fully offline workflow** — your data never leaves your machine
 
@@ -150,9 +154,27 @@ Your Documents (TXT / PDF / DOCX / MD / PPTX / XLSX / Images)
 
 | Parameter | Value | Description |
 |---|---|---|
+| `top_k` | `3` | Number of chunks passed to the LLM as final context |
 | `retrieval_candidate_k` | `10` | Initial candidate pool size before filtering |
 | `min_score_threshold` | `0.45` | Absolute minimum — chunks below this are discarded |
 | `min_confidence_score` | `0.60` | If top score is below this on ambiguous queries, LLM is not called |
+| `relative_score_ratio` | `0.90` | Chunks scoring below 90% of the top result are dropped |
+
+All five parameters can also be viewed and edited live from the **Settings** panel in the app — changes are written directly to `config.py` (restart required to take effect).
+
+---
+
+## Dashboard & Configuration
+
+Beyond the chat window, the desktop app includes several panels:
+
+| Panel | Purpose |
+|-------|---------|
+| **Knowledge Base** | Overview of indexed document counts by file type, with a re-sync button |
+| **Model Information** | Active embedding/chat model names, runtime, total query count, retrieval top-k |
+| **Local Files** | Lists every file currently scanned from the documents folder |
+| **Documents** | Shows how many chunks each source file was split into |
+| **Settings** | View and edit retrieval parameters without touching code |
 
 ---
 
@@ -219,6 +241,7 @@ Building this project gave me hands-on experience with:
 - Making follow-up queries work correctly by enriching them with prior context
 - Prompt engineering for small local models: keeping instructions concise to avoid repetition and formatting drift
 - Rendering math and diagrams in a chat UI with MathJax and Mermaid
+- Wiring a multi-panel dashboard (model info, file browser, live settings editor) to a single Python backend through `pywebview`'s `js_api` bridge
 
 ---
 
@@ -238,6 +261,7 @@ Building this project gave me hands-on experience with:
 - Race conditions between UI polling and backend initialization causing crashes — solved with defensive checks in the stats endpoint
 - Rendering LaTeX and diagram syntax cleanly in a lightweight desktop UI without a heavy frontend framework
 - Brute-force cosine similarity search becoming a bottleneck at scale — replaced the per-query Python loop with a vectorized NumPy operation, cutting retrieval time by ~99% on repeated queries
+- App was re-generating embeddings for the entire document set on every startup, even when nothing had changed — fixed the existing-embeddings check so it actually skips re-embedding when `embeddings.db` already has up-to-date data, cutting startup time significantly
 - Sidebar close button living inside the collapsible sidebar itself, making it impossible to reopen once closed — solved with a separate persistent open button outside the sidebar
 - Knowledge base stat counters (PPTX/XLSX/PNG/JPEG) showing wrong numbers due to a DOM-order/array-index mismatch in the frontend
 - Sidebar navigation breaking silently when a tab's `data-view` attribute didn't match its content container's `id` — fixed by cross-checking every nav link against its view container and adding a defensive fallback instead of a hard crash
@@ -250,7 +274,6 @@ Building this project gave me hands-on experience with:
 - Streaming responses in real time
 - Better retrieval ranking (hybrid search: BM25 + semantic)
 - Re-ranking with a cross-encoder model
-- Support for more formats (CSV, HTML)
 - Full offline bundling of MathJax/Mermaid assets (currently loaded from CDN)
 
 ---

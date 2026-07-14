@@ -13,12 +13,12 @@
 <body>
 
   <aside class="sidebar" id="sidebar">
+    <button class="sidebar-toggle-btn" id="sidebarToggleBtn">☰</button>
     <div class="brand-row">
       <div class="brand">
         <div class="brand-icon">⚙</div>
         <div class="brand-name">LocalRAG</div>
       </div>
-      <button class="sidebar-toggle-btn" id="sidebarToggleBtn">☰</button>
     </div>
 
     <div class="nav-label">MAIN</div>
@@ -88,9 +88,8 @@
       <div class="content">
         <div class="kb-card">
           <div class="kb-card-header">Model Information</div>
-          <div class="model-info">
-            <div class="model-info-item"> Embedding Model: qwen3-embedding-0.6b</div>
-            <div class="model-info-item"> Chat Model: qwen3-4b </div>
+          <div class="model-info" id="model-info-list">
+            <div class="model-info-item">Loading...</div>
           </div>
         </div>
       </div>
@@ -122,7 +121,9 @@
       <div class="content">
         <div class="kb-card">
           <div class="kb-card-header">Documents</div>
-          <div class="documents-item">No documents yet</div>
+          <div id="documents-list">
+            <div class="documents-item">Loading...</div>
+          </div>
         </div>
       </div>
     </div>
@@ -131,7 +132,33 @@
       <div class="content">
         <div class="kb-card">
           <div class="kb-card-header">Settings</div>
-          <div class="settings-item">Settings coming soon</div>
+
+          <div class="setting-row">
+            <label>Top K (How many chunk?)</label>
+            <input type="number" id="setting-top-k" step="1" />
+          </div>
+
+          <div class="setting-row">
+            <label>Retrieval Candidate K</label>
+            <input type="number" id="setting-candidate-k" step="1" />
+          </div>
+
+          <div class="setting-row">
+            <label>Min Score Threshold</label>
+            <input type="number" id="setting-min-score" step="0.01" />
+          </div>
+
+          <div class="setting-row">
+            <label>Min Confidence Score</label>
+            <input type="number" id="setting-min-confidence" step="0.01" />
+          </div>
+
+          <div class="setting-row">
+            <label>Relative Score Ratio</label>
+            <input type="number" id="setting-relative-ratio" step="0.01" />
+          </div>
+
+          <button class="btn-primary" onclick="saveSettings()">Save</button>
         </div>
       </div>
     </div>
@@ -203,6 +230,9 @@
         if (target === 'dashboard') refreshStats();
         if (target === 'query-history') refreshQueryHistory();
         if (target === 'local-files') refreshLocalFiles();
+        if (target === 'model-management') loadModelInfo();
+        if (target === 'documents') loadDocumentsSummary();
+        if (target === 'settings') loadSettings();
       });
     });
 
@@ -429,6 +459,61 @@ function escapeHtml(text) {
       }
     }
 
+
+    async function loadModelInfo() {
+      const info = await pywebview.api.get_model_info();
+      const container = document.getElementById("model-info-list");
+
+      container.innerHTML = `
+        <div class="model-info-item">Embedding Model: ${info.embedding_model}</div>
+        <div class="model-info-item">Chat Model: ${info.llm_model}</div>
+        <div class="model-info-item">Runtime: ${info.runtime}</div>
+        <div class="model-info-item">Toplam Sorgu: ${info.total_queries}</div>
+        <div class="model-info-item">Retrieval Top K: ${info.top_k}</div>
+      `;
+    }
+
+    async function loadDocumentsSummary() {
+      const docs = await pywebview.api.get_documents_summary();
+      const container = document.getElementById("documents-list");
+
+      container.innerHTML = "";
+
+      for (const doc of docs) {
+        const line = document.createElement("div");
+        line.className = "file-item";
+        line.innerHTML = `
+          <span class="doc-name">${doc.file}</span>
+          <span class="doc-chunk-badge">${doc.chunk_count} chunk</span>
+       `;
+        container.appendChild(line);
+      }
+    }
+    
+    async function loadSettings() {
+      const settings = await pywebview.api.get_settings();
+      document.getElementById("setting-top-k").value = settings.top_k;
+      document.getElementById("setting-candidate-k").value = settings.retrieval_candidate_k;
+      document.getElementById("setting-min-score").value = settings.min_score_threshold;
+      document.getElementById("setting-min-confidence").value = settings.min_confidence_score;
+      document.getElementById("setting-relative-ratio").value = settings.relative_score_ratio;
+    }
+
+    async function saveSettings() {
+      const newSettings = {
+        top_k: document.getElementById("setting-top-k").value,
+        retrieval_candidate_k: document.getElementById("setting-candidate-k").value,
+        min_score_threshold: document.getElementById("setting-min-score").value,
+        min_confidence_score: document.getElementById("setting-min-confidence").value,
+        relative_score_ratio: document.getElementById("setting-relative-ratio").value
+      };
+
+      const result = await pywebview.api.save_settings(newSettings);
+
+      if (result.success) {
+        alert("The settings have been saved. Restart the app for the changes to take effect.");
+      }
+    }
 
     
     const kbCountEl = document.querySelector('.kb-count');

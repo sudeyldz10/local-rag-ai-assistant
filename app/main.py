@@ -4,6 +4,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 import webview
+import re
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
@@ -295,7 +296,87 @@ class Api:
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
+    def get_model_info(self):
+        from config import chat_model_name, embedding_model_name, top_k
+        total_queries = 0
+        try:
+            cursor = self.conn.execute("SELECT COUNT(*) FROM messages WHERE role='user'")
+            total_queries = cursor.fetchone()[0]
+        except Exception:
+            pass
 
+        return {
+        "llm_model": chat_model_name,
+        "embedding_model": embedding_model_name,
+        "runtime": "Microsoft Foundry Local",
+        "total_queries": total_queries,
+        "top_k": top_k
+        }
+
+    def get_settings(self):
+        from config import (
+            top_k,
+            retrieval_candidate_k,
+            min_score_threshold,
+            min_confidence_score,
+            relative_score_ratio
+        )
+        return {
+            "top_k": top_k,
+            "retrieval_candidate_k": retrieval_candidate_k,
+            "min_score_threshold": min_score_threshold,
+            "min_confidence_score": min_confidence_score,
+            "relative_score_ratio": relative_score_ratio
+        }
+
+    def save_settings(self, new_settings):
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        config_path = os.path.join(project_root, "config.py")
+
+        with open(config_path, "r") as f:
+            content = f.read()
+
+        for key, value in new_settings.items():
+            pattern = rf"^{key}\s*=\s*.+$"
+            replacement = f"{key} = {value}"
+            content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+
+        with open(config_path, "w") as f:
+            f.write(content)
+
+        return {"success": True}
+
+    def get_documents_summary(self):
+        
+        if not self.chunks:
+            return []
+
+        from collections import Counter
+        counts = Counter()
+
+        for chunk in self.chunks:
+            source = chunk["source"] if isinstance(chunk, dict) else getattr(chunk, "source", "unknown")
+            counts[source] += 1
+
+        return [
+            {"file": os.path.basename(source), "chunk_count": count}
+            for source, count in counts.items()
+        ]
+
+    def list_local_files(self):
+        # NOTE: your initialize() and resync_index() scan a hardcoded path
+        # ("/Users/sudeyildiz1012/Desktop/DERSLER") instead of the DOCS_PATH env var.
+        # This function scans that same hardcoded path so it matches what's actually indexed.
+        data_dir = "/Users/sudeyildiz1012/Desktop/DERSLER"
+
+        file_paths = []
+        for root, dirs, files in os.walk(data_dir):
+            for fname in files:
+                file_paths.append(os.path.join(root, fname))
+
+        return {"files": file_paths}
+
+            
 if __name__ == "__main__":
     api = Api()
 
