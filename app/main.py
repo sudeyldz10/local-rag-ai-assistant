@@ -2,6 +2,7 @@ import sys
 import os
 import sqlite3
 import uuid
+import threading
 from datetime import datetime
 import webview
 import re
@@ -16,12 +17,16 @@ from ingestion.embedding_store import save_embeddings, load_embeddings
 from llm.local_llm import initialize_foundry, load_embedding_model, load_chat_client
 from ingestion.embedding_generator import generate_document_embeddings
 from rag_pipeline import ask_question
+from rag_streaming import stream_ask_question
 
 DOCS_PATH = os.getenv("DOCS_PATH", "data")
 EMBEDDINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../vector/embeddings.db")
 
 
 CHATS_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../vector/chats.db")
+
+# Global streaming sessions storage
+streaming_sessions = {}
 
 
 class Api:
@@ -164,13 +169,13 @@ class Api:
         if self.ready:
             return {"status": "already initialized"}
 
-        print("\nInitializing RAG system...\n")
+        print("\nInitializing RAG system...\n", flush= True)
         manager = initialize_foundry()
 
         self.chunks, self.doc_embeddings = load_embeddings(EMBEDDINGS_PATH)
 
         if self.chunks is None:
-            documents = load_documents("/Users/sudeyildiz1012/Desktop/DERSLER")
+            documents = load_documents(DOCS_PATH)
             self.chunks = split_documents(documents)
             self.embedding_client = load_embedding_model(manager)
             self.doc_embeddings = generate_document_embeddings(self.chunks, self.embedding_client)
@@ -181,7 +186,7 @@ class Api:
         self.chat_client = load_chat_client(manager)
         self.ready = True
 
-        print("\nRAG system ready!\n")
+        print("\nRAG system ready!\n", flush= True)
         return {"status": "ready"}
 
 
@@ -208,6 +213,114 @@ class Api:
         except Exception as e:
             return {"answer": "", "error": str(e)}
 
+    def start_streaming_session(self, query):
+        """
+        Starts a streaming session and returns session_id.
+        Backend collects streaming events in a queue.
+        """
+        query = (query or "").strip()
+        if not query:
+            return {"error": "empty_query", "session_id": None}
+
+        session_id = str(uuid.uuid4())
+        streaming_sessions[session_id] = {
+            "events": [],
+            "completed": False,
+            "query": query
+        }
+        
+        # Start background thread to collect events
+        thread = threading.Thread(
+            target=self._collect_streaming_events,
+            args=(session_id, query),
+            daemon=True
+        )
+        thread.start()
+        
+        return {"session_id": session_id, "error": None}
+    
+    def _collect_streaming_events(self, session_id, query):
+        """Background thread that collects streaming events."""
+        try:
+            self._update_title_if_needed(query)
+            self._save_message("user", query)
+            
+            full_answer = ""
+            sources = []
+            
+            for event in stream_ask_question(
+                query, self.chunks, self.doc_embeddings,
+                self.embedding_client, self.chat_client, self.history
+            ):
+                # Log sources to terminal
+                if event["type"] == "retrieved":
+                    print("\n" + "="*60)
+                    print("RETRIEVED DOCUMENTS")
+                    print("="*60)
+                    for doc_info in event["data"]["documents"]:
+                        print(f"Rank {doc_info['rank']}: {doc_info['source']}")
+                        print(f"  Score: {doc_info['score']:.4f}")
+                        print(f"  Path: {doc_info['full_path']}")
+                    print("="*60 + "\n")
+                
+                # Accumulate LLM text for saving
+                if event["type"] == "chunk":
+                    full_answer += event["data"]["text"]
+                
+                # Save message and collect sources when complete
+                elif event["type"] == "complete":
+                    answer = event["data"]["answer"]
+                    sources = event["data"]["sources"]
+                    # Deduplicate sources while preserving order
+                    sources = list(dict.fromkeys(sources))
+                    if not answer:
+                        answer = full_answer
+                    self._save_message("assistant", answer)
+                    
+                    # Log sources summary to terminal
+                    print("\n" + "="*60)
+                    print("SOURCES USED")
+                    print("="*60)
+                    for source in sources:
+                        print(f"  • {source}")
+                    print("="*60 + "\n")
+                
+                # Add event to session queue
+                if session_id in streaming_sessions:
+                    streaming_sessions[session_id]["events"].append(event)
+            
+            if session_id in streaming_sessions:
+                streaming_sessions[session_id]["completed"] = True
+        
+        except Exception as e:
+            if session_id in streaming_sessions:
+                streaming_sessions[session_id]["events"].append({
+                    "type": "error",
+                    "data": {"error": str(e)}
+                })
+                streaming_sessions[session_id]["completed"] = True
+    
+    def get_streaming_event(self, session_id):
+        """Gets next event from streaming session queue."""
+        if session_id not in streaming_sessions:
+            return {"event": None, "completed": True}
+        
+        session = streaming_sessions[session_id]
+        
+        if session["events"]:
+            event = session["events"].pop(0)
+            return {"event": event, "completed": False}
+        
+        if session["completed"]:
+            return {"event": None, "completed": True}
+        
+        return {"event": None, "completed": False}
+    
+    def cancel_streaming_session(self, session_id):
+        """Cancels a streaming session."""
+        if session_id in streaming_sessions:
+            del streaming_sessions[session_id]
+        return {"success": True}
 
     
     def get_stats(self):
@@ -242,7 +355,7 @@ class Api:
 
     def resync_index(self):
         try:
-            data_dir = "/Users/sudeyildiz1012/Desktop/DERSLER"
+            data_dir = DOCS_PATH
 
             if self.chunks:
                 already_indexed_chunks = self.chunks
@@ -319,14 +432,20 @@ class Api:
             retrieval_candidate_k,
             min_score_threshold,
             min_confidence_score,
-            relative_score_ratio
+            relative_score_ratio,
+            enable_reranker,
+            bm25_weight,
+            semantic_weight
         )
         return {
             "top_k": top_k,
             "retrieval_candidate_k": retrieval_candidate_k,
             "min_score_threshold": min_score_threshold,
             "min_confidence_score": min_confidence_score,
-            "relative_score_ratio": relative_score_ratio
+            "relative_score_ratio": relative_score_ratio,
+            "enable_reranker": enable_reranker,
+            "bm25_weight": bm25_weight,
+            "semantic_weight": semantic_weight
         }
 
     def save_settings(self, new_settings):
@@ -346,6 +465,8 @@ class Api:
 
         return {"success": True}
 
+    
+
     def get_documents_summary(self):
         
         if not self.chunks:
@@ -364,17 +485,60 @@ class Api:
         ]
 
     def list_local_files(self):
-        # NOTE: your initialize() and resync_index() scan a hardcoded path
-        # ("/Users/sudeyildiz1012/Desktop/DERSLER") instead of the DOCS_PATH env var.
-        # This function scans that same hardcoded path so it matches what's actually indexed.
-        data_dir = "/Users/sudeyildiz1012/Desktop/DERSLER"
+        print("DEBUG: list_local_files() called")
+        data_dir = DOCS_PATH
 
-        file_paths = []
+        # Which paths are already indexed, so we can show a badge
+        indexed_paths = set()
+        if self.chunks:
+            for chunk in self.chunks:
+                source = chunk["source"] if isinstance(chunk, dict) else getattr(chunk, "source", None)
+                if source:
+                    indexed_paths.add(source)
+
+        folders = {}
         for root, dirs, files in os.walk(data_dir):
-            for fname in files:
-                file_paths.append(os.path.join(root, fname))
+            rel = os.path.relpath(root, data_dir)
+            folder_name = "DERSLER" if rel == "." else rel.split(os.sep)[0]
 
-        return {"files": file_paths}
+            for fname in files:
+                full_path = os.path.join(root, fname)
+                try:
+                    size = os.path.getsize(full_path)
+                    modified = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime("%Y-%m-%d %H:%M")
+                except OSError:
+                    size = 0
+                    modified = ""
+
+                folders.setdefault(folder_name, []).append({
+                    "name": fname,
+                    "path": full_path,
+                    "size": size,
+                    "modified": modified,
+                    "indexed": full_path in indexed_paths
+                })
+
+        # Sort folders alphabetically, and files within each folder alphabetically
+        result = []
+        for folder_name in sorted(folders.keys()):
+            files_in_folder = sorted(folders[folder_name], key=lambda f: f["name"].lower())
+            result.append({"folder": folder_name, "files": files_in_folder})
+
+        return {"folders": result}
+
+    def open_file(self, file_path):
+        """
+        Opens the file with the system default application.
+        """
+        try:
+            import subprocess
+            if os.path.exists(file_path):
+                subprocess.Popen(['open', file_path])
+                return {"success": True, "message": f"Opened: {file_path}"}
+            else:
+                return {"success": False, "error": f"File not found: {file_path}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
             
 if __name__ == "__main__":
@@ -389,8 +553,14 @@ if __name__ == "__main__":
     )
 
     def on_loaded():
-        api.initialize()
+        try:
+            print("on_loaded triggered", flush=True)
+            result = api.initialize()
+            print("INIT RESULT:", result, flush=True)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
 
     window.events.loaded += on_loaded
 
-    webview.start()
+    webview.start(debug=True)

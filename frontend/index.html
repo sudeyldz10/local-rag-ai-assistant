@@ -13,25 +13,49 @@
 <body>
 
   <aside class="sidebar" id="sidebar">
-    <button class="sidebar-toggle-btn" id="sidebarToggleBtn">☰</button>
     <div class="brand-row">
-      <div class="brand">
-        <div class="brand-icon">⚙</div>
-        <div class="brand-name">LocalRAG</div>
-      </div>
+      <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="Collapse The Sidebar">◂</button>
     </div>
 
-    <div class="nav-label">MAIN</div>
-    <div class="nav-link" data-view="new-chat">+ New Chat</div>
-    <div class="nav-link active" data-view="chat"> Chat</div>
-    <div class="nav-link" data-view="dashboard"> Knowledge Base</div>
-    <div class="nav-link" data-view="model-management">Model Information</div>
-    <div class="nav-link" data-view="settings"> Settings</div>
+    <div class="nav-link active" data-view="chat">
+    <span class="icon">💬</span>
+    <span class="nav-text">Chat</span>
+</div>
 
-    <div class="nav-label">STORAGE</div>
-    <div class="nav-link" data-view="local-files"> Local Files</div>
-    <div class="nav-link" data-view="documents"> Documents</div>
-    <div class="nav-link" data-view="query-history"> Query History</div>
+<div class="nav-link" data-view="dashboard">
+    <span class="icon">📚</span>
+    <span class="nav-text">Knowledge Base</span>
+</div>
+
+<div class="nav-link" data-view="model-management">
+    <span class="icon">🤖</span>
+    <span class="nav-text">Model Information</span>
+</div>
+
+<div class="nav-link" data-view="settings">
+    <span class="icon">⚙️</span>
+    <span class="nav-text">Settings</span>
+</div>
+
+<div class="nav-link" data-view="local-files">
+    <span class="icon">📁</span>
+    <span class="nav-text">Local Files</span>
+</div>
+
+<div class="nav-link" data-view="documents">
+    <span class="icon">📄</span>
+    <span class="nav-text">Documents</span>
+</div>
+
+<div class="nav-link" data-view="query-history">
+    <span class="icon">🕓</span>
+    <span class="nav-text">Query History</span>
+</div>
+
+<div class="nav-link" data-view="new-chat">
+    <span class="icon">➕</span>
+    <span class="nav-text">New Chat</span>
+</div>
 
     <div class="sidebar-footer">
       <span class="dot-green"></span> Connected: Localhost
@@ -41,12 +65,20 @@
 
   <main class="main">
     <div class="topbar">
-      <div>
-        <h1 id="viewTitle">Chat</h1>
-        <div class="subtitle" id="viewSubtitle">Ask your local knowledge base</div>
-      </div>
-      <div class="topbar-right"></div>
+  <div>
+
+    <div class="localrag-title">LocalRAG</div>
+
+    <h1 id="viewTitle">Chat</h1>
+
+    <div class="subtitle" id="viewSubtitle">
+      Ask your local knowledge base
     </div>
+
+  </div>
+
+  <div class="topbar-right"></div>
+</div>
 
     <div class="view active" id="view-chat">
       <div class="chat-view-body" id="chatArea">
@@ -110,8 +142,8 @@
       <div class="content">
         <div class="kb-card">
           <div class="kb-card-header">Local Files</div>
-          <div class="local-files" id="localFilesList">
-            <div class="local-file-item">No local files yet</div>
+          <div class="folder-tree" id="localFilesTree">
+            <div class="local-file-item">Loading...</div>
           </div>
         </div>
       </div>
@@ -158,6 +190,21 @@
             <input type="number" id="setting-relative-ratio" step="0.01" />
           </div>
 
+          <div class="setting-row">
+            <label>Enable Reranker</label>
+            <input type="checkbox" id="setting-enable-reranker" />
+          </div>
+
+          <div class="setting-row">
+            <label>BM25 Weight</label>
+            <input type="number" id="setting-bm25-weight" step="0.05" min="0" max="1" />
+          </div>
+
+          <div class="setting-row">
+            <label>Semantic Weight</label>
+            <input type="number" id="setting-semantic-weight" step="0.05" min="0" max="1" />
+          </div>
+
           <button class="btn-primary" onclick="saveSettings()">Save</button>
         </div>
       </div>
@@ -182,16 +229,20 @@
     const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
     const sidebarOpenBtn = document.getElementById('sidebarOpenBtn');
 
+    function setSidebarState(closed) {
+      sidebar.classList.toggle('closed', closed);
+      if (sidebarToggleBtn) sidebarToggleBtn.textContent = closed ? '▸' : '◂';
+      if (sidebarOpenBtn) sidebarOpenBtn.style.display = closed ? 'flex' : 'none';
+    }
+
     if (sidebarToggleBtn && sidebar) {
-      sidebarToggleBtn.addEventListener('click', () => {
-        sidebar.classList.toggle('closed');
-      });
+      sidebarToggleBtn.addEventListener('click', () => setSidebarState(true));
     }
+
     if (sidebarOpenBtn && sidebar) {
-      sidebarOpenBtn.addEventListener('click', () => {
-        sidebar.classList.remove('closed');
-      });
+      sidebarOpenBtn.addEventListener('click', () => setSidebarState(false));
     }
+    setSidebarState(false);
 
    
     const viewTitle = document.getElementById('viewTitle');
@@ -207,7 +258,7 @@
       'model-management': { title: 'Model Information', subtitle: 'Active local models' }
     };
 
-    document.querySelectorAll('.nav-link[data-view]').forEach(link => {
+    document.querySelectorAll('.nav-link[data-view]:not([data-view="new-chat"])').forEach(link => {
       link.addEventListener('click', () => {
         const target = link.dataset.view;
         const meta = viewMeta[target];
@@ -320,6 +371,8 @@
   }
 
   if (isError) bubble.style.color = '#c0392b';
+  // Return the row element so callers can update it while streaming
+  return row;
 }
 
 function escapeHtml(text) {
@@ -332,12 +385,17 @@ function escapeHtml(text) {
 
     function addLoadingMessage() {
       hideEmptyState();
+      const existing = document.getElementById('loadingMsg');
+      if (existing) return existing;
+
       const row = document.createElement('div');
       row.className = 'msg-row bot';
+      row.classList.add('loading');
       row.id = 'loadingMsg';
       row.innerHTML = `<div class="chat-avatar">✦</div><div class="bot-content"><div class="bubble-bot">Thinking...</div></div>`;
       chatArea.appendChild(row);
       chatArea.scrollTop = chatArea.scrollHeight;
+      return row;
     }
 
     function removeLoadingMessage() {
@@ -364,18 +422,103 @@ function escapeHtml(text) {
       addUserMessage(query);
       queryInput.value = '';
       sendBtn.disabled = true;
-      addLoadingMessage();
+      removeLoadingMessage();
+      
+      let botMessageEl = null;
+      let fullAnswer = "";
 
       try {
-        const result = await window.pywebview.api.ask(query);
-        removeLoadingMessage();
-        if (result.error) {
-          addBotMessage('An error occurred: ' + result.error, true);
-        } else {
-          addBotMessage(result.answer);
+        // Start streaming session
+        const startResult = await window.pywebview.api.start_streaming_session(query);
+        if (startResult.error) {
+          addBotMessage('Error: ' + startResult.error, true);
+          sendBtn.disabled = false;
+          return;
         }
+        
+        const sessionId = startResult.session_id;
+        botMessageEl = addLoadingMessage();
+        
+        // Poll for events
+        let polling = true;
+        while (polling) {
+          const result = await window.pywebview.api.get_streaming_event(sessionId);
+          const event = result.event;
+          const completed = result.completed;
+          
+          if (event) {
+            if (event.type === "retrieving") {
+              // Silently start retrieving
+              if (botMessageEl) {
+                botMessageEl.innerHTML = '🔍 Retrieving documents...';
+              }
+            } 
+            else if (event.type === "retrieved") {
+              // Log to console/terminal only, don't show in UI
+              console.log("Retrieved documents (shown in terminal):");
+              event.data.documents.forEach(doc => {
+                console.log(`  Rank ${doc.rank}: ${doc.source} (score: ${doc.score.toFixed(4)})`);
+              });
+            }
+            else if (event.type === "generating") {
+              // Update loading state
+              if (botMessageEl) {
+                botMessageEl.innerHTML = '🤖 Generating response...';
+              }
+            }
+            else if (event.type === "chunk") {
+              // On first chunk, replace the loading row with a bot message
+              fullAnswer += event.data.text;
+              if (botMessageEl && botMessageEl.id === 'loadingMsg') {
+                removeLoadingMessage();
+                botMessageEl = addBotMessage(fullAnswer);
+              } else if (!botMessageEl) {
+                botMessageEl = addBotMessage(fullAnswer);
+              } else {
+                const bubble = botMessageEl.querySelector('.bubble-bot');
+                if (bubble) bubble.innerHTML = escapeHtml(fullAnswer);
+                else botMessageEl.textContent = fullAnswer;
+              }
+            }
+            else if (event.type === "complete") {
+              if (!botMessageEl) {
+                botMessageEl = addBotMessage(event.data.answer);
+              } else {
+                const bubble = botMessageEl.querySelector('.bubble-bot');
+                if (bubble) {
+                  bubble.innerHTML = escapeHtml(event.data.answer);
+                  if (window.MathJax && window.MathJax.typesetPromise) {
+                    MathJax.typesetPromise([bubble]).catch(err => console.error('MathJax error:', err));
+                  }
+                } else {
+                  botMessageEl.textContent = event.data.answer;
+                }
+              }
+              console.log("Sources used:", event.data.sources.join(", "));
+            }
+            else if (event.type === "error") {
+              removeLoadingMessage();
+              addBotMessage('An error occurred: ' + event.data.error, true);
+              polling = false;
+            }
+          }
+          
+          if (completed && !event) {
+            polling = false;
+            removeLoadingMessage();
+          }
+          
+          // Small delay between polls
+          if (polling) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        }
+        
+        // Clean up session
+        await window.pywebview.api.cancel_streaming_session(sessionId);
       } catch (err) {
         removeLoadingMessage();
+        console.error('Streaming error:', err);
         addBotMessage('Backend connection error: ' + err, true);
       } finally {
         sendBtn.disabled = false;
@@ -439,25 +582,60 @@ function escapeHtml(text) {
 
     
     async function refreshLocalFiles() {
-      const listEl = document.getElementById('localFilesList');
-      try {
-        const result = await window.pywebview.api.list_local_files();
-        if (!result.files || result.files.length === 0) {
-          listEl.innerHTML = '<div class="local-file-item">No local files yet</div>';
-          return;
-        }
-
-        listEl.innerHTML = '';
-        result.files.forEach(path => {
-          const item = document.createElement('div');
-          item.className = 'local-file-item';
-          item.textContent = path.split('/').pop();
-          listEl.appendChild(item);
-        });
-      } catch (err) {
-        console.error('Local files could not be loaded:', err);
-      }
+  const treeEl = document.getElementById('localFilesTree');
+  try {
+    const result = await window.pywebview.api.list_local_files();
+    if (!result.folders || result.folders.length === 0) {
+      treeEl.innerHTML = '<div class="local-file-item">No local files yet</div>';
+      return;
     }
+
+    treeEl.innerHTML = '';
+    result.folders.forEach(folder => {
+      const group = document.createElement('div');
+      group.className = 'folder-group';
+
+      const header = document.createElement('div');
+      header.className = 'folder-header';
+      header.innerHTML = `<span class="arrow">▶</span> 📁 ${folder.folder} <span style="margin-left:auto; font-weight:400; color:var(--text-muted);">${folder.files.length} file</span>`;
+      header.addEventListener('click', () => group.classList.toggle('open'));
+
+      const filesWrap = document.createElement('div');
+      filesWrap.className = 'folder-files';
+
+      folder.files.forEach(file => {
+        const item = document.createElement('div');
+        item.className = 'tree-file-item';
+        item.title = file.path;
+
+        const sizeKb = (file.size / 1024).toFixed(1) + ' KB';
+        const indexedBadge = file.indexed ? '<span class="tree-file-indexed">Indexed</span>' : '';
+
+        item.innerHTML = `
+          <span class="tree-file-name">${file.name}</span>
+          <span class="tree-file-meta">${sizeKb} · ${file.modified} ${indexedBadge}</span>
+        `;
+
+        item.addEventListener('click', async () => {
+          try {
+            await window.pywebview.api.open_file(file.path);
+          } catch (err) {
+            console.error('File could not be opened:', err);
+            alert('Could not open file: ' + err);
+          }
+        });
+
+        filesWrap.appendChild(item);
+      });
+
+      group.appendChild(header);
+      group.appendChild(filesWrap);
+      treeEl.appendChild(group);
+    });
+  } catch (err) {
+    console.error('Local files could not be loaded:', err);
+  }
+}
 
 
     async function loadModelInfo() {
@@ -497,6 +675,9 @@ function escapeHtml(text) {
       document.getElementById("setting-min-score").value = settings.min_score_threshold;
       document.getElementById("setting-min-confidence").value = settings.min_confidence_score;
       document.getElementById("setting-relative-ratio").value = settings.relative_score_ratio;
+      document.getElementById("setting-enable-reranker").checked = !!settings.enable_reranker;
+      document.getElementById("setting-bm25-weight").value = settings.bm25_weight;
+      document.getElementById("setting-semantic-weight").value = settings.semantic_weight;
     }
 
     async function saveSettings() {
@@ -505,7 +686,10 @@ function escapeHtml(text) {
         retrieval_candidate_k: document.getElementById("setting-candidate-k").value,
         min_score_threshold: document.getElementById("setting-min-score").value,
         min_confidence_score: document.getElementById("setting-min-confidence").value,
-        relative_score_ratio: document.getElementById("setting-relative-ratio").value
+        relative_score_ratio: document.getElementById("setting-relative-ratio").value,
+        enable_reranker: document.getElementById("setting-enable-reranker").checked ? "True" : "False",
+        bm25_weight: document.getElementById("setting-bm25-weight").value,
+        semantic_weight: document.getElementById("setting-semantic-weight").value
       };
 
       const result = await pywebview.api.save_settings(newSettings);

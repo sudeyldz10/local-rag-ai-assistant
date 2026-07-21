@@ -4,24 +4,18 @@ from ingestion.embedding_generator import generate_query_embedding
 from retrieval.retriever import find_relevant
 from llm.prompt_templates import built_rag_prompt as build_rag_prompt
 from utils.helpers import clean_answer
-from config import top_k, retrieval_candidate_k, min_confidence_score, relative_score_ratio
+from config import top_k, retrieval_candidate_k, min_confidence_score, relative_score_ratio, min_score_threshold
 
 VAGUE_FOLLOWUP = re.compile(
-    r"\b(this|that|it|these|those|them|structure|above|previous)\b",
+    r"\b(this|that|it|these|those|them|structure|above|previous|"
+    r"bu|şu|o|bunu|şunu|onu|bunun|şunun|onun|bunlar|şunlar|onlar|"
+    r"bununla|şununla|onunla|konu|konuyla|yukarıda|önceki|yukarıdaki|"
+    r"örnek|misal)\b",
     re.IGNORECASE,
 )
 
-MAX_WORDS_FOR_FOLLOWUP = 6
-def _is_repeating(text, window=60, min_repeats=4):
-    """
-    Detects when the model has fallen into a repetition loop - a known
-    failure mode where a small local LLM gets stuck repeating the same
-    chunk of text over and over instead of finishing its answer.
-
-    Looks at the END of the text and checks whether the same block of
-    `window` characters shows up right after itself, back-to-back, at
-    least `min_repeats` times in a row.
-    """
+MAX_WORDS_FOR_FOLLOWUP = 12
+def _is_repeating(text, window=30, min_repeats=5):
     needed_length = window * min_repeats
     if len(text) < needed_length:
         return False
@@ -61,8 +55,7 @@ def _build_enriched_query(query, history):
         return query
 
     previous_question = history[-2]["content"]
-    previous_answer = history[-1]["content"]
-    return f"{previous_question} {query} {previous_answer}"
+    return f"{previous_question} {query}"
 
 
 def _apply_relative_score_filter(results):
@@ -107,7 +100,11 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, his
     enriched_query = _build_enriched_query(query, history)
 
     query_embedding = generate_query_embedding(enriched_query, embedding_client)
-    results = find_relevant(query_embedding, doc_embeddings, k=retrieval_candidate_k)
+    results = find_relevant(enriched_query, query_embedding, docs, doc_embeddings, k=retrieval_candidate_k)
+
+    # Drop weak matches so unrelated documents don't get pulled in just to fill top_k
+    results = [(idx, score) for idx, score in results if score >= min_score_threshold]
+
     results = _apply_relative_score_filter(results)
 
     if history and _is_vague_followup(query):
@@ -195,26 +192,24 @@ def ask_question(query, docs, doc_embeddings, embedding_client, chat_client, his
     elif stopped_early:
         answer += "\n\n_(Response was cut short - the model started repeating itself.)_"
 
-    used_chunk_match = re.search(
-        r"\**USED[\s_]?CHUNK\**:?\s*(\d+)",
-        answer,
-        re.IGNORECASE
-    )
+    if results:
+        answer_words = answer.lower().split()
 
-    if used_chunk_match:
-        used_chunk_number = int(used_chunk_match.group(1))
-        real_doc_index = results[used_chunk_number - 1][0]
+        best_index = results[0][0]
+        best_count = -1
 
-        source_name = os.path.basename(docs[real_doc_index]["source"])
+        for index, score in results:
+            chunk_text = docs[index]["text"].lower()
+            count = sum(1 for word in answer_words if len(word) > 3 and word in chunk_text)
 
-        answer = re.sub(
-            r"\**USED[\s_]?CHUNK\**:?\s*\d+",
-            "",
-            answer,
-            flags=re.IGNORECASE
-        ).strip()
+            if count > best_count:
+                best_count = count
+                best_index = index
 
-        answer += "\n\nSource: " + source_name
+        if best_count >= 3:
+            source_name= os.path.basename(docs[best_index]["source"])
+            answer+= "\n\nSource: " + source_name
+
 
     history.append({"role": "user", "content": query})
     history.append({"role": "assistant", "content": answer})

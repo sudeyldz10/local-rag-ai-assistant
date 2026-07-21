@@ -37,12 +37,15 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 - **Text chunking and preprocessing** — smart splitting with configurable chunk size and overlap
 - **Embedding generation** — semantic vector representations via Foundry Local SDK
 - **Embedding persistence** — embeddings saved to SQLite database, no recalculation on restart
+- **Hybrid retrieval (BM25 + semantic)** — combines lexical (BM25) and semantic (cosine similarity) scoring for stronger retrieval than either alone
+- **Cross-encoder re-ranking** — optionally re-ranks the hybrid candidates with a cross-encoder model for a final relevance boost
 - **Semantic similarity search** — finds the most relevant chunks for each query
-- **Smart retrieval pipeline** — candidate pre-filtering, relative score filtering (%75 rule), and source preference for follow-up queries
+- **Smart retrieval pipeline** — candidate pre-filtering, absolute score threshold, relative score filtering, and source preference for follow-up queries
 - **Retrieval-Augmented Generation (RAG)** — grounds LLM answers in your documents
 - **Persistent multi-chat history** — every conversation is saved to its own SQLite record and can be reopened from the sidebar's Query History
-- **Conversation history** — remembers previous questions within a chat; follow-up queries are automatically enriched with prior context
+- **Conversation history** — remembers previous questions within a chat; follow-up queries are automatically enriched with prior context (Turkish and English follow-up phrasing both recognized)
 - **Confidence-based early exit** — if retrieved chunks fall below the confidence threshold, the LLM is skipped and a clear "not enough info" message is returned instead
+- **Streaming responses** — answers stream token-by-token in real time, with `<think>` reasoning blocks held back until they close
 - **Source filtering** — use `[foldername]` tag to search only within a specific folder
 - **Source-cited answers** — every document-based answer references the exact source file used
 - **Math rendering** — LaTeX-style expressions rendered as real formulas in the UI (via MathJax)
@@ -55,7 +58,7 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 - **Model Information panel** — view the active embedding/chat model names, runtime, total query count, and current retrieval top-k at a glance
 - **Local Files browser** — see every file currently scanned from your documents folder
 - **Documents panel** — per-file chunk counts, showing exactly how each source document was split during ingestion
-- **In-app Settings panel** — adjust retrieval parameters (top-k, candidate-k, score thresholds, relative score ratio) directly from the UI, no need to edit `config.py` by hand
+- **In-app Settings panel** — adjust retrieval parameters (top-k, candidate-k, score thresholds, relative score ratio, hybrid weights, reranker toggle) directly from the UI, no need to edit `config.py` by hand
 - **Modular project architecture** — clean separation of ingestion, retrieval, generation, and UI
 - **Fully offline workflow** — your data never leaves your machine
 
@@ -74,6 +77,8 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 | SQLite | Local vector storage and chat history storage |
 | PyMuPDF (fitz) | PDF parsing |
 | python-docx | DOCX parsing |
+| rank_bm25 | Lexical (BM25) retrieval scoring |
+| sentence-transformers | Cross-encoder re-ranking |
 | NumPy | Cosine similarity computation |
 | python-dotenv | Environment variable management |
 
@@ -85,9 +90,10 @@ An offline Retrieval-Augmented Generation (RAG) assistant built with Python and 
 local-rag-ai-assistant/
 │
 ├── app/
-│   ├── config.py                  # Central config (thresholds, chunk size, model names)
-│   ├── main.py                    # Api class: pywebview window, RAG init, chat & history management
+│   ├── config.py                  # Central config (thresholds, chunk size, model names, hybrid/reranker settings)
+│   ├── api.py                     # Api class: pywebview window, RAG init, chat & history management
 │   ├── rag_pipeline.py            # End-to-end RAG logic with smart filtering
+│   ├── rag_streaming.py           # Streaming variant of the RAG pipeline (token-by-token responses)
 │   │
 │   ├── ingestion/
 │   │   ├── document_loader.py     # TXT, PDF, DOCX, MD, PPTX, XLSX, image loading with folder recursion
@@ -97,14 +103,23 @@ local-rag-ai-assistant/
 │   │
 │   ├── retrieval/
 │   │   ├── vector_store.py        # Cosine similarity
-│   │   └── retriever.py           # Top-k semantic search with score thresholding
+│   │   └── retriever.py           # Hybrid (BM25 + semantic) search with optional cross-encoder re-ranking
 │   │
 │   ├── llm/
 │   │   ├── local_llm.py           # Foundry Local initialization
 │   │   └── prompt_templates.py    # System prompt builder with conversation history
 │   │
-│   └── utils/
-│       └── helpers.py             # Answer cleaning, <think> suppression
+│   ├── utils/
+│   │   └── helpers.py             # Answer cleaning, <think> suppression
+│   │
+│   └── tests/                     # Unit tests for the pure-logic parts of the pipeline (no LLM/embedding calls)
+│       ├── _common.py             # Shared test helpers (fake chat/embedding clients, tiny test runner)
+│       ├── test_helpers.py        # <think> tag stripping
+│       ├── test_rag_pipeline.py   # Repetition detection, follow-up detection, ask_question
+│       ├── test_rag_streaming.py  # Streaming think-block handling, min_score_threshold filtering
+│       ├── test_retriever.py      # Hybrid scoring filters, cross-encoder fallback behavior
+│       ├── test_api_list_local_files.py  # list_local_files() output format
+│       └── run_all.py             # Runs every test file in sequence
 │
 ├── frontend/
 │   ├── index.html                 # Desktop UI: chat, sidebar, knowledge base, query history
@@ -144,18 +159,21 @@ Your Documents (TXT / PDF / DOCX / MD / PPTX / XLSX / Images)
   [ Query Enrichment ]  →  follow-up queries enriched with conversation history
         │
         ▼
-  [ Retriever ]  →  top-k candidates (with optional source filter)
+  [ Hybrid Retriever ]  →  BM25 + semantic cosine similarity, top candidate pool
+        │
+        ▼
+  [ Cross-Encoder Re-ranking ]  →  optional final re-rank of the candidate pool
         │
         ▼
   [ Score Filtering ]
-    ├─ Absolute threshold  (min_score_threshold = 0.45)
-    └─ Relative filter     (%75 rule — drops chunks far below best score)
+    ├─ Absolute threshold  (min_score_threshold)
+    └─ Relative filter     (drops chunks far below best score)
         │
         ▼
-  [ Confidence Check ]  →  if score < 0.60, skip LLM and return early message
+  [ Confidence Check ]  →  if score < min_confidence_score, skip LLM and return early message
         │
         ▼
-  [ LLM (Foundry Local) ]
+  [ LLM (Foundry Local) ]  →  streamed token-by-token
         │
         ▼
   [ <think> suppression ]  →  strips internal reasoning from Qwen output
@@ -175,11 +193,15 @@ Your Documents (TXT / PDF / DOCX / MD / PPTX / XLSX / Images)
 |---|---|---|
 | `top_k` | `3` | Number of chunks passed to the LLM as final context |
 | `retrieval_candidate_k` | `10` | Initial candidate pool size before filtering |
-| `min_score_threshold` | `0.45` | Absolute minimum — chunks below this are discarded |
+| `min_score_threshold` | `0.55` | Absolute minimum — chunks below this are discarded |
 | `min_confidence_score` | `0.60` | If top score is below this on ambiguous queries, LLM is not called |
 | `relative_score_ratio` | `0.90` | Chunks scoring below 90% of the top result are dropped |
+| `bm25_weight` | `0.5` | Weight given to the BM25 (lexical) score in the hybrid combination |
+| `semantic_weight` | `0.5` | Weight given to the semantic (cosine) score in the hybrid combination |
+| `enable_reranker` | `True` | Whether to apply cross-encoder re-ranking on top of hybrid retrieval |
+| `cross_encoder_model` | `cross-encoder/qnli-distilroberta-base` | Model used for re-ranking |
 
-All five parameters can also be viewed and edited live from the **Settings** panel in the app — changes are written directly to `config.py` (restart required to take effect).
+All parameters can also be viewed and edited live from the **Settings** panel in the app — changes are written directly to `config.py` (restart required to take effect).
 
 ---
 
@@ -212,10 +234,44 @@ DOCS_PATH=/path/to/your/documents
 
 Run the assistant:
 ```bash
-python app/main.py
+python app/api.py
 ```
 
 The desktop app window will open automatically. On first launch, your documents will be loaded, chunked, and embedded — this may take a moment depending on how many files you have.
+
+---
+
+## Testing
+
+Pure-logic parts of the pipeline (retrieval filtering, `<think>` tag cleanup, repetition detection, follow-up detection, file-listing format) are covered by a lightweight test suite that runs without any real LLM or embedding model calls — external calls are swapped out with fakes/mocks so the tests run instantly and deterministically.
+
+Run the full suite:
+```bash
+cd app
+python3 tests/run_all.py
+```
+
+Or run an individual file:
+```bash
+python3 tests/test_rag_pipeline.py
+```
+
+**Test Results**
+
+`test_helpers.py` — `<think>` tag stripping
+![test_helpers results](assets/screenshot-test-helpers.png)
+
+`test_rag_pipeline.py` — repetition detection, follow-up detection, `ask_question` end-to-end
+![test_rag_pipeline results](assets/screenshot-test-rag-pipeline.png)
+
+`test_rag_streaming.py` — streamed `<think>` block handling, `min_score_threshold` filtering
+![test_rag_streaming results](assets/screenshot-test-rag-streaming.png)
+
+`test_retriever.py` — hybrid score filtering, cross-encoder fallback behavior
+![test_retriever results](assets/screenshot-test-retriever.png)
+
+`test_api_list_local_files.py` — `list_local_files()` output format
+![test_api_list_local_files results](assets/screenshot-test-api-list-local-files.png)
 
 ---
 
@@ -249,6 +305,7 @@ Building this project gave me hands-on experience with:
 
 - RAG architecture and how retrieval improves LLM accuracy
 - Working with vector embeddings and cosine similarity search
+- Combining lexical (BM25) and semantic retrieval into a single hybrid score, and re-ranking with a cross-encoder
 - Parsing multiple document formats (TXT, PDF, DOCX, MD, PPTX, XLSX, images) in Python
 - Integrating a local LLM through the Microsoft Foundry Local SDK
 - Designing a modular, layered Python project from scratch
@@ -257,10 +314,11 @@ Building this project gave me hands-on experience with:
 - Building a fully offline AI system with zero external API calls
 - Storing and querying structured data with SQLite, including multi-chat history persistence
 - Tuning retrieval quality with score thresholds and relative filtering strategies
-- Making follow-up queries work correctly by enriching them with prior context
+- Making follow-up queries work correctly by enriching them with prior context, in both English and Turkish
 - Prompt engineering for small local models: keeping instructions concise to avoid repetition and formatting drift
 - Rendering math and diagrams in a chat UI with MathJax and Mermaid
 - Wiring a multi-panel dashboard (model info, file browser, live settings editor) to a single Python backend through `pywebview`'s `js_api` bridge
+- Writing dependency-free unit tests for pure logic by mocking out the LLM/embedding boundary
 
 ---
 
@@ -272,11 +330,11 @@ Building this project gave me hands-on experience with:
 - Structuring the project so each module stays independent and testable
 - Suppressing `<think>` reasoning tokens from Qwen model output using regex
 - Scanned PDFs returning only `\n` characters — solved with a minimum content length filter
-- Unrelated documents scoring high in retrieval — solved with source filtering and relative score filter
+- Unrelated documents scoring high in retrieval — solved with source filtering, a semantic-score floor, and the relative score filter
 - Large embedding models (8b) being too slow for local use — reverted to `qwen3-embedding-0.6b`
 - Preventing hallucination on vague queries — solved with confidence-based early exit before LLM call
-- Follow-up queries losing context — solved by enriching queries with conversation history
-- Small local models breaking down into repetitive output when given overly long, detailed prompts — solved by simplifying the system prompt
+- Follow-up queries losing context — solved by enriching queries with conversation history, in both English and Turkish
+- Small local models breaking down into repetitive output when given overly long, detailed prompts — solved by simplifying the system prompt and detecting repetition mid-stream
 - Race conditions between UI polling and backend initialization causing crashes — solved with defensive checks in the stats endpoint
 - Rendering LaTeX and diagram syntax cleanly in a lightweight desktop UI without a heavy frontend framework
 - Brute-force cosine similarity search becoming a bottleneck at scale — replaced the per-query Python loop with a vectorized NumPy operation, cutting retrieval time by ~99% on repeated queries
@@ -285,15 +343,8 @@ Building this project gave me hands-on experience with:
 - Knowledge base stat counters (PPTX/XLSX/PNG/JPEG) showing wrong numbers due to a DOM-order/array-index mismatch in the frontend
 - Sidebar navigation breaking silently when a tab's `data-view` attribute didn't match its content container's `id` — fixed by cross-checking every nav link against its view container and adding a defensive fallback instead of a hard crash
 - The model occasionally falling into an infinite repetition loop on complex prompts — solved by detecting repeated output mid-stream and stopping generation early
+- Streaming a `<think>` block that could be split across multiple network chunks — solved by buffering until the closing tag is seen before deciding what to show
 
----
-
-## Future Improvements
-
-- Streaming responses in real time
-- Better retrieval ranking (hybrid search: BM25 + semantic)
-- Re-ranking with a cross-encoder model
-- Full offline bundling of MathJax/Mermaid assets (currently loaded from CDN)
 
 ---
 
