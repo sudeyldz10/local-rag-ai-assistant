@@ -2,16 +2,20 @@
 Streaming support for RAG pipeline - simplified version.
 Streams retrieval results and LLM response chunks in real-time.
 """
+
 import re
 import os
+
 from ingestion.embedding_generator import generate_query_embedding
 from retrieval.retriever import find_relevant
 from llm.prompt_templates import built_rag_prompt as build_rag_prompt
 from utils.helpers import clean_answer
 from config import top_k, retrieval_candidate_k, min_score_threshold
 from rag_pipeline import _is_vague_followup, _build_enriched_query
+# NOTE: duplicate of the import above, plus two more names
 from rag_pipeline import _is_vague_followup, _build_enriched_query, _extract_last_source, _apply_source_preference
 
+# Same vague-follow-up detector as rag_pipeline.py
 VAGUE_FOLLOWUP = re.compile(
     r"\b(this|that|it|these|those|them|structure|above|previous|"
     r"bu|şu|o|bunu|şunu|onu|bunun|şunun|onun|bunlar|şunlar|onlar|"
@@ -19,11 +23,11 @@ VAGUE_FOLLOWUP = re.compile(
     r"örnek|misal)\b",
     re.IGNORECASE,
 )
-
 MAX_WORDS_FOR_FOLLOWUP = 12
 
 
 def _is_repeating(text, window=60, min_repeats=4):
+    # Same repetition-loop detector as rag_pipeline.py, tuned differently
     needed_length = window * min_repeats
     if len(text) < needed_length:
         return False
@@ -36,15 +40,15 @@ def _is_repeating(text, window=60, min_repeats=4):
     while tail[position:position + window] == pattern:
         repeats += 1
         position += window
-        if repeats >= min_repeats:
-            return True
 
+    if repeats >= min_repeats:
+        return True
     return False
+
 
 def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_client, history=None):
     """
     Simplified streaming version of ask_question.
-
     Yields dict events with:
     - "type": "retrieving" | "retrieved" | "generating" | "chunk" | "complete" | "error"
     - "data": relevant data for each event type
@@ -53,9 +57,7 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
         history = []
 
     try:
-        
         enriched_query = _build_enriched_query(query, history)
-
         query_embedding = generate_query_embedding(enriched_query, embedding_client)
 
         yield {"type": "retrieving", "data": {"query": query}}
@@ -68,6 +70,7 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
 
         # Drop weak matches so unrelated documents don't get pulled in just to fill top_k
         results = [(idx, score) for idx, score in results if score >= min_score_threshold]
+
         if history and _is_vague_followup(query):
             preferred_source = _extract_last_source(history)
             print(f"DEBUG preferred_source: {preferred_source}")
@@ -76,6 +79,7 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
                 print(f"DEBUG history length: {len(history)}")
                 print(f"DEBUG last history item: {history[-1] if history else None}")
                 print(f"DEBUG preferred_source: {preferred_source}")
+
                 # Make sure last turn's document is always considered, even if
                 # this turn's raw retrieval score for it is too low to make
                 # the candidate cut on its own.
@@ -121,7 +125,6 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
             doc = docs[index]
             context += f"[Chunk {chunk_number}]\nSource: {doc['source']}\n{doc['text']}\n\n"
 
-
         # Prepare messages for LLM
         messages = [{"role": "system", "content": build_rag_prompt(context)}]
         for h in history:
@@ -132,12 +135,11 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
         yield {"type": "generating", "data": {"context_chunks": len(results)}}
 
         # Stream LLM response, holding back any <think> block until it's done
-        # Stream LLM response, holding back any <think> block until it's done
+        # (duplicate comment kept as in original source)
         full_answer = ""
         think_buffer = ""
         thinking_done = False
         stopped_early = False
-
         MAX_ANSWER_CHARS = 4000  # hard safety cap - answer stops no matter what past this
 
         for chunk in chat_client.complete_streaming_chat(messages):
@@ -159,6 +161,7 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
                 stopped_early = True
                 break
 
+            # Buffer text while inside a <think> block; flush once it closes
             if not thinking_done:
                 think_buffer += content
                 if "</think>" in think_buffer.lower() or "</thinking>" in think_buffer.lower():
@@ -170,6 +173,7 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
 
             yield {"type": "chunk", "data": {"text": content}}
 
+        # Edge case: generation ended mid-think, flush whatever is left
         if not thinking_done and think_buffer:
             visible_text = clean_answer(think_buffer)
             if visible_text:
@@ -181,8 +185,7 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
         elif stopped_early:
             answer += "\n\n_(Response was cut short - the model started repeating itself.)_"
 
-        sources = [os.path.basename(docs[idx]["source"]) for idx, _ in results]  
-
+        sources = [os.path.basename(docs[idx]["source"]) for idx, _ in results]
 
         yield {
             "type": "complete",
@@ -192,6 +195,7 @@ def stream_ask_question(query, docs, doc_embeddings, embedding_client, chat_clie
             }
         }
 
+        # Save this turn, tagging the answer with its top source
         history_answer = answer
         if sources:
             history_answer += "\n\nSource: " + sources[0]

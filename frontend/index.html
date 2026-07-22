@@ -11,7 +11,7 @@
 </script>
 </head>
 <body>
-
+  <!--Sidebar navigation-->
   <aside class="sidebar" id="sidebar">
     <div class="brand-row">
       <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="Collapse The Sidebar">◂</button>
@@ -62,7 +62,7 @@
     </div>
   </aside>
   <button class="sidebar-open-btn" id="sidebarOpenBtn">☰</button>
-
+  <!--main application content-->
   <main class="main">
     <div class="topbar">
   <div>
@@ -79,7 +79,7 @@
 
   <div class="topbar-right"></div>
 </div>
-
+    <!--Chat interface-->
     <div class="view active" id="view-chat">
       <div class="chat-view-body" id="chatArea">
         <div class="chat-empty" id="chatEmptyState">You haven't asked any questions yet. Start typing below.</div>
@@ -91,7 +91,7 @@
         </div>
       </div>
     </div>
-
+    <!--Knowledgebase dashboard-->
     <div class="view" id="view-dashboard">
       <div class="content">
         <div class="kb-card">
@@ -115,7 +115,7 @@
         </div>
       </div>
     </div>
-
+    <!--model info panel-->
     <div class="view" id="view-model-management">
       <div class="content">
         <div class="kb-card">
@@ -126,7 +126,7 @@
         </div>
       </div>
     </div>
-
+    <!--Previous conversation history-->
     <div class="view" id="view-query-history">
       <div class="content">
         <div class="kb-card">
@@ -137,7 +137,7 @@
         </div>
       </div>
     </div>
-
+    <!--Local files browser-->
     <div class="view" id="view-local-files">
       <div class="content">
         <div class="kb-card">
@@ -148,7 +148,7 @@
         </div>
       </div>
     </div>
-
+    <!--Indexed documents summary-->
     <div class="view" id="view-documents">
       <div class="content">
         <div class="kb-card">
@@ -159,7 +159,7 @@
         </div>
       </div>
     </div>
-
+    <!--Retrieval and application settings-->
     <div class="view" id="view-settings">
       <div class="content">
         <div class="kb-card">
@@ -214,6 +214,7 @@
   </main>
 
   <script>
+    // congifure mathJax for rendering mathematical expressions
     window.MathJax = {
       tex: {
       inlineMath: [['$', '$'], ['\\(', '\\)']],
@@ -224,7 +225,7 @@
     }
   };
 
-    
+    //sidebar expand/collapse controls
     const sidebar = document.getElementById('sidebar');
     const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
     const sidebarOpenBtn = document.getElementById('sidebarOpenBtn');
@@ -244,7 +245,7 @@
     }
     setSidebarState(false);
 
-   
+   // view navigation and page switching
     const viewTitle = document.getElementById('viewTitle');
     const viewSubtitle = document.getElementById('viewSubtitle');
 
@@ -288,21 +289,23 @@
     });
 
 
-    
+    // chat interface helpers
     const chatArea = document.getElementById('chatArea');
     const queryInput = document.getElementById('queryInput');
     const sendBtn = document.getElementById('sendBtn');
 
+    // returns the current time in hours and minutes
     function nowTime() {
       const d = new Date();
       return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     }
-
+    //removes the empty chat placeholder
     function hideEmptyState() {
       const el = document.getElementById('chatEmptyState');
       if (el) el.remove();
     }
-
+    
+    //reset the chat interface
     function clearChatUI() {
       chatArea.innerHTML = '';
       const empty = document.createElement('div');
@@ -312,6 +315,7 @@
       chatArea.appendChild(empty);
     }
 
+    // display a user message in the chat
     function addUserMessage(text) {
       hideEmptyState();
       const row = document.createElement('div');
@@ -322,6 +326,7 @@
       chatArea.scrollTop = chatArea.scrollHeight;
     }
 
+    //display an assistant message with Mermaid and MathJax support
     function addBotMessage(text, isError = false) {
       hideEmptyState();
       const row = document.createElement('div');
@@ -375,6 +380,7 @@
   return row;
 }
 
+// escapes HTML characters before rendering
 function escapeHtml(text) {
   return text
     .replace(/&/g, '&amp;')
@@ -382,7 +388,7 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;');
 }
 
-
+    // displays a temporary loading message
     function addLoadingMessage() {
       hideEmptyState();
       const existing = document.getElementById('loadingMsg');
@@ -398,13 +404,14 @@ function escapeHtml(text) {
       return row;
     }
 
+    //removes the loading message
     function removeLoadingMessage() {
       const el = document.getElementById('loadingMsg');
       if (el) el.remove();
     }
 
 
-    
+    //creates a new chat session
     async function onNewChatClick() {
       await window.pywebview.api.new_chat();
       clearChatUI();
@@ -414,7 +421,7 @@ function escapeHtml(text) {
     newChatLink.addEventListener('click', onNewChatClick);
 
 
-    
+    // send a question and streams the assistant response
     async function sendQuestion() {
       const query = queryInput.value.trim();
       if (!query) return;
@@ -531,7 +538,7 @@ function escapeHtml(text) {
     });
 
 
-   
+    //loads avaliable chat sessions
     async function refreshQueryHistory() {
       const listEl = document.getElementById('queryHistoryList');
       try {
@@ -555,6 +562,7 @@ function escapeHtml(text) {
       }
     }
 
+    //opens a previously saved conversation
     async function openChatFromHistory(chatId) {
       try {
         const result = await window.pywebview.api.switch_chat(chatId);
@@ -580,10 +588,10 @@ function escapeHtml(text) {
     }
 
 
-    
+    //loads the local files tree
     async function refreshLocalFiles() {
-  const treeEl = document.getElementById('localFilesTree');
-  try {
+      const treeEl = document.getElementById('localFilesTree');
+try {
     const result = await window.pywebview.api.list_local_files();
     if (!result.folders || result.folders.length === 0) {
       treeEl.innerHTML = '<div class="local-file-item">No local files yet</div>';
@@ -637,7 +645,7 @@ function escapeHtml(text) {
   }
 }
 
-
+    //loads active model information
     async function loadModelInfo() {
       const info = await pywebview.api.get_model_info();
       const container = document.getElementById("model-info-list");
@@ -651,6 +659,7 @@ function escapeHtml(text) {
       `;
     }
 
+    //loads indexed document statistics
     async function loadDocumentsSummary() {
       const docs = await pywebview.api.get_documents_summary();
       const container = document.getElementById("documents-list");
@@ -668,6 +677,7 @@ function escapeHtml(text) {
       }
     }
     
+    //loads retrieval settings
     async function loadSettings() {
       const settings = await pywebview.api.get_settings();
       document.getElementById("setting-top-k").value = settings.top_k;
@@ -680,6 +690,7 @@ function escapeHtml(text) {
       document.getElementById("setting-semantic-weight").value = settings.semantic_weight;
     }
 
+    //saves updated retrieval settings
     async function saveSettings() {
       const newSettings = {
         top_k: document.getElementById("setting-top-k").value,
@@ -704,6 +715,7 @@ function escapeHtml(text) {
     const statNums = document.querySelectorAll('.kb-stat .num');
     const resyncBtn = document.querySelector('.resync-btn');
 
+    //Refresh dashboard statistics
     async function refreshStats() {
       try {
         const stats = await window.pywebview.api.get_stats();
@@ -725,6 +737,7 @@ function escapeHtml(text) {
       }
     }
 
+    //rebuilds the document index
     resyncBtn.addEventListener('click', async () => {
       const original = resyncBtn.innerHTML;
       resyncBtn.innerHTML = '↻ Syncing... (this may take long time)';
@@ -748,13 +761,14 @@ function escapeHtml(text) {
     });
 
 
-    
+    //enables the chat interface after initialization
     function markReady() {
       queryInput.disabled = false;
       sendBtn.disabled = false;
       queryInput.placeholder = 'Ask something...';
     }
 
+    //wait for the backend to finish initiaization
     window.addEventListener('pywebviewready', () => {
       refreshStats();
       const check = setInterval(async () => {

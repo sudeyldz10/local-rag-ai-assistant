@@ -7,8 +7,11 @@ from datetime import datetime
 import webview
 import re
 from dotenv import load_dotenv
+
+# Load env vars from project root .env
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
+# Make project root importable (ingestion/, llm/, retrieval/, utils/)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ingestion.document_loader import load_documents
@@ -21,8 +24,6 @@ from rag_streaming import stream_ask_question
 
 DOCS_PATH = os.getenv("DOCS_PATH", "data")
 EMBEDDINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../vector/embeddings.db")
-
-
 CHATS_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../vector/chats.db")
 
 # Global streaming sessions storage
@@ -30,6 +31,8 @@ streaming_sessions = {}
 
 
 class Api:
+    # Bridge exposed to the frontend via pywebview (window.pywebview.api.*)
+
     def __init__(self):
         self.history = []
         self.chunks = None
@@ -37,17 +40,10 @@ class Api:
         self.embedding_client = None
         self.chat_client = None
         self.ready = False
-
-        
         self.conn = sqlite3.connect(CHATS_DB_PATH, check_same_thread=False)
         self._create_tables_if_not_exist()
-
-        
         self.current_chat_id = None
         self.new_chat()
-
-
-    
 
     def _create_tables_if_not_exist(self):
         """
@@ -73,7 +69,6 @@ class Api:
         """)
         self.conn.commit()
 
-
     def new_chat(self):
         """
         Called when the user clicks the 'New Chat' button.
@@ -81,18 +76,14 @@ class Api:
         and resets the currently active conversation history.
         """
         new_chat_id = str(uuid.uuid4())
-
         self.conn.execute(
             "INSERT INTO chats (chat_id, title, created_at) VALUES (?, ?, ?)",
             (new_chat_id, "New Chat", datetime.now().isoformat())
         )
         self.conn.commit()
-
         self.current_chat_id = new_chat_id
-        self.history = []  
-
+        self.history = []
         return {"chat_id": new_chat_id}
-
 
     def list_chats(self):
         """
@@ -111,14 +102,12 @@ class Api:
             })
         return result
 
-
     def switch_chat(self, chat_id):
         """
         Called when the user clicks on an old chat in the sidebar.
         Loads all messages of that chat back from the database.
         """
         self.current_chat_id = chat_id
-
         cursor = self.conn.execute(
             "SELECT role, content FROM messages WHERE chat_id=? ORDER BY id",
             (chat_id,)
@@ -126,10 +115,8 @@ class Api:
         messages = []
         for role, content in cursor.fetchall():
             messages.append({"role": role, "content": content})
-
         self.history = messages
         return {"messages": messages}
-
 
     def _save_message(self, role, content):
         """
@@ -142,7 +129,6 @@ class Api:
         )
         self.conn.commit()
 
-
     def _update_title_if_needed(self, first_message):
         """
         If the chat's title is still 'New Chat',
@@ -153,7 +139,6 @@ class Api:
             "SELECT title FROM chats WHERE chat_id=?", (self.current_chat_id,)
         )
         row = cursor.fetchone()
-
         if row and row[0] == "New Chat":
             new_title = first_message.strip()[:40]
             self.conn.execute(
@@ -162,18 +147,16 @@ class Api:
             )
             self.conn.commit()
 
-
-    
-
     def initialize(self):
+        # Loads models + index once; no-op if already ready
         if self.ready:
             return {"status": "already initialized"}
 
-        print("\nInitializing RAG system...\n", flush= True)
+        print("\nInitializing RAG system...\n", flush=True)
         manager = initialize_foundry()
 
+        # Reuse cached embeddings if they exist, otherwise build from scratch
         self.chunks, self.doc_embeddings = load_embeddings(EMBEDDINGS_PATH)
-
         if self.chunks is None:
             documents = load_documents(DOCS_PATH)
             self.chunks = split_documents(documents)
@@ -185,30 +168,23 @@ class Api:
 
         self.chat_client = load_chat_client(manager)
         self.ready = True
-
-        print("\nRAG system ready!\n", flush= True)
+        print("\nRAG system ready!\n", flush=True)
         return {"status": "ready"}
 
-
     def ask(self, query):
+        # Non-streaming Q&A: run full pipeline, save and return the answer
         query = (query or "").strip()
         if not query:
             return {"answer": "", "error": "empty_query"}
 
         try:
-            
             self._update_title_if_needed(query)
             self._save_message("user", query)
-
-            
             answer, self.history = ask_question(
                 query, self.chunks, self.doc_embeddings,
                 self.embedding_client, self.chat_client, self.history
             )
-
-            
             self._save_message("assistant", answer)
-
             return {"answer": answer, "error": None}
         except Exception as e:
             return {"answer": "", "error": str(e)}
@@ -228,7 +204,7 @@ class Api:
             "completed": False,
             "query": query
         }
-        
+
         # Start background thread to collect events
         thread = threading.Thread(
             target=self._collect_streaming_events,
@@ -236,98 +212,101 @@ class Api:
             daemon=True
         )
         thread.start()
-        
+
         return {"session_id": session_id, "error": None}
-    
+
     def _collect_streaming_events(self, session_id, query):
         """Background thread that collects streaming events."""
         try:
             self._update_title_if_needed(query)
             self._save_message("user", query)
-            
+
             full_answer = ""
             sources = []
-            
+
             for event in stream_ask_question(
                 query, self.chunks, self.doc_embeddings,
                 self.embedding_client, self.chat_client, self.history
             ):
                 # Log sources to terminal
                 if event["type"] == "retrieved":
-                    print("\n" + "="*60)
+                    print("\n" + "=" * 60)
                     print("RETRIEVED DOCUMENTS")
-                    print("="*60)
+                    print("=" * 60)
                     for doc_info in event["data"]["documents"]:
                         print(f"Rank {doc_info['rank']}: {doc_info['source']}")
                         print(f"  Score: {doc_info['score']:.4f}")
                         print(f"  Path: {doc_info['full_path']}")
-                    print("="*60 + "\n")
-                
+                    print("=" * 60 + "\n")
+
                 # Accumulate LLM text for saving
                 if event["type"] == "chunk":
                     full_answer += event["data"]["text"]
-                
+
                 # Save message and collect sources when complete
                 elif event["type"] == "complete":
                     answer = event["data"]["answer"]
                     sources = event["data"]["sources"]
+
                     # Deduplicate sources while preserving order
                     sources = list(dict.fromkeys(sources))
+
                     if not answer:
                         answer = full_answer
+
                     self._save_message("assistant", answer)
-                    
+
                     # Log sources summary to terminal
-                    print("\n" + "="*60)
+                    print("\n" + "=" * 60)
                     print("SOURCES USED")
-                    print("="*60)
+                    print("=" * 60)
                     for source in sources:
                         print(f"  • {source}")
-                    print("="*60 + "\n")
-                
+                    print("=" * 60 + "\n")
+
                 # Add event to session queue
                 if session_id in streaming_sessions:
                     streaming_sessions[session_id]["events"].append(event)
-            
+
             if session_id in streaming_sessions:
                 streaming_sessions[session_id]["completed"] = True
-        
+
         except Exception as e:
+            # Surface pipeline errors as an "error" event
             if session_id in streaming_sessions:
                 streaming_sessions[session_id]["events"].append({
                     "type": "error",
                     "data": {"error": str(e)}
                 })
                 streaming_sessions[session_id]["completed"] = True
-    
+
     def get_streaming_event(self, session_id):
         """Gets next event from streaming session queue."""
         if session_id not in streaming_sessions:
             return {"event": None, "completed": True}
-        
+
         session = streaming_sessions[session_id]
-        
         if session["events"]:
             event = session["events"].pop(0)
             return {"event": event, "completed": False}
-        
+
         if session["completed"]:
             return {"event": None, "completed": True}
-        
+
         return {"event": None, "completed": False}
-    
+
     def cancel_streaming_session(self, session_id):
         """Cancels a streaming session."""
         if session_id in streaming_sessions:
             del streaming_sessions[session_id]
         return {"success": True}
 
-    
     def get_stats(self):
-        chunks = self.chunks  
+        # Counts indexed chunks per file extension for the dashboard
+        chunks = self.chunks
         if not self.ready or not chunks:
             return {"total": 0, "pdfs": 0, "txts": 0, "docxs": 0, "mds": 0,
-                    "pptxs": 0, "xlsx": 0, "jpgs": 0, "jpegs": 0, "pngs": 0, "ready": False}
+                     "pptxs": 0, "xlsx": 0, "jpgs": 0, "jpegs": 0, "pngs": 0, "ready": False}
 
         def source_of(c):
             if isinstance(c, dict):
@@ -351,9 +330,8 @@ class Api:
             "ready": True
         }
 
-
-
     def resync_index(self):
+        # Indexes only new files, appends to existing chunks/embeddings
         try:
             data_dir = DOCS_PATH
 
@@ -367,7 +345,6 @@ class Api:
                 already_indexed_paths.add(chunk["source"])
 
             all_documents = load_documents(data_dir)
-
             new_documents = []
             for doc in all_documents:
                 if doc["source"] not in already_indexed_paths:
@@ -379,15 +356,13 @@ class Api:
                     "total": len(already_indexed_chunks),
                     "added": 0
                 }
-            
+
             new_chunks = split_documents(new_documents)
 
-            
             if self.embedding_client is None:
                 manager = initialize_foundry()
                 self.embedding_client = load_embedding_model(manager)
 
-    
             new_embeddings = generate_document_embeddings(new_chunks, self.embedding_client)
 
             if self.doc_embeddings:
@@ -399,18 +374,20 @@ class Api:
             self.doc_embeddings = existing_embeddings + new_embeddings
 
             save_embeddings(self.chunks, self.doc_embeddings, EMBEDDINGS_PATH)
+
             return {
                 "status": "ok",
                 "total": len(self.chunks),
                 "added": len(new_chunks),
                 "new_files": len(new_documents)
             }
-
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
     def get_model_info(self):
+        # Returns active model names + query count for the info view
         from config import chat_model_name, embedding_model_name, top_k
+
         total_queries = 0
         try:
             cursor = self.conn.execute("SELECT COUNT(*) FROM messages WHERE role='user'")
@@ -419,14 +396,15 @@ class Api:
             pass
 
         return {
-        "llm_model": chat_model_name,
-        "embedding_model": embedding_model_name,
-        "runtime": "Microsoft Foundry Local",
-        "total_queries": total_queries,
-        "top_k": top_k
+            "llm_model": chat_model_name,
+            "embedding_model": embedding_model_name,
+            "runtime": "Microsoft Foundry Local",
+            "total_queries": total_queries,
+            "top_k": top_k
         }
 
     def get_settings(self):
+        # Reads current retrieval/reranking settings from config.py
         from config import (
             top_k,
             retrieval_candidate_k,
@@ -437,6 +415,7 @@ class Api:
             bm25_weight,
             semantic_weight
         )
+
         return {
             "top_k": top_k,
             "retrieval_candidate_k": retrieval_candidate_k,
@@ -449,6 +428,8 @@ class Api:
         }
 
     def save_settings(self, new_settings):
+        # Rewrites matching "key = value" lines directly in config.py
+        # (requires app restart to take effect)
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         config_path = os.path.join(project_root, "config.py")
 
@@ -465,16 +446,13 @@ class Api:
 
         return {"success": True}
 
-    
-
     def get_documents_summary(self):
-        
+        # Groups indexed chunks by source file for the Documents view
         if not self.chunks:
             return []
 
         from collections import Counter
         counts = Counter()
-
         for chunk in self.chunks:
             source = chunk["source"] if isinstance(chunk, dict) else getattr(chunk, "source", "unknown")
             counts[source] += 1
@@ -485,6 +463,7 @@ class Api:
         ]
 
     def list_local_files(self):
+        # Builds a folder -> files tree for the Local Files view
         print("DEBUG: list_local_files() called")
         data_dir = DOCS_PATH
 
@@ -540,10 +519,10 @@ class Api:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-            
-if __name__ == "__main__":
-    api = Api()
 
+if __name__ == "__main__":
+    # Entry point: opens the pywebview window and wires up the Api bridge
+    api = Api()
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     frontend_path = os.path.join(project_root, "frontend", "index.html")
 
@@ -562,5 +541,4 @@ if __name__ == "__main__":
             traceback.print_exc()
 
     window.events.loaded += on_loaded
-
     webview.start(debug=True)
