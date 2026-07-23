@@ -234,7 +234,7 @@ DOCS_PATH=/path/to/your/documents
 
 Run the assistant:
 ```bash
-python app/api.py
+python app/main.py
 ```
 
 The desktop app window will open automatically. On first launch, your documents will be loaded, chunked, and embedded — this may take a moment depending on how many files you have.
