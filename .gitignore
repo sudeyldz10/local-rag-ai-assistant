@@ -1,7 +1,19 @@
+# Python
+venv/
 __pycache__/
 *.pyc
+
+# Environment
+.env
+
+# Runtime data
+vector/
+*.db
+*.json
+
+# Cache
+.cache/
+.pytest_cache/
+
+# OS
 .DS_Store
-venv/
-.env
-vector/*.db
-.env
