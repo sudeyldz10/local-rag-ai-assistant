@@ -16,32 +16,41 @@ This project focuses on document retrieval, semantic search, and local AI infere
 - Local LLM integration
 - Modular project architecture
 - Offline AI workflow
-- Hybrid retrieval: custom NumPy BM25 (lexical) combined with dense semantic search
-- Cross-encoder re-ranking (`sentence-transformers`, `cross-encoder/ms-marco-MiniLM-L-6-v2`) for higher-precision result ordering
+- Hybrid retrieval: BM25 (`rank-bm25`, lexical) combined with dense semantic search
+- Cross-encoder re-ranking (`sentence-transformers`, `cross-encoder/qnli-distilroberta-base`) for higher-precision result ordering, blended 70/30 with the hybrid score
 - Reliable source attribution via word-overlap matching, instead of relying on the LLM to self-report sources
-- Streaming responses pushed live to the UI via `window.evaluate_js()`
+- Streaming responses via a session-based polling architecture (`start_streaming_session` / `get_streaming_event` / `cancel_streaming_session`), so the UI pulls tokens as they're generated instead of waiting for a full response
 - Turkish language support: pronoun/topic-word detection for vague follow-up questions
-- Sentence-aware chunking (splits on sentence boundaries instead of fixed character windows)
+- Sentence-aware chunking (splits on sentence boundaries instead of fixed character windows), with hard character-based splitting as a fallback for oversized sentences
 - Vectorized cosine similarity with NumPy (~480x speedup over the naive loop-based version)
 - Multi-chat with SQLite-backed persistence (multiple conversations, full session recall)
 - Desktop UI built with pywebview, pink/orchid theme
-- Four sidebar panels: Model Information, Local Files, Documents, and Settings
-- Test suite (`tests/` directory, `unittest.mock`) covering ingestion, retrieval, embedding persistence, and regression cases for previously fixed bugs
+- Six sidebar views: Dashboard, Model Management, Query History, Local Files, Documents, and Settings — in addition to the main Chat view
+- Live-tunable retrieval settings from the Settings panel: `top_k`, candidate `k`, minimum score threshold, minimum confidence, relative score ratio, reranker on/off, and BM25/semantic weight split — no restart needed
+- Document ingestion beyond TXT/PDF/DOCX: also supports Markdown, PPTX (slide text extraction), and XLSX (cell-by-cell text extraction)
+- `[filename] question` query syntax to restrict retrieval to a single source document
+- Mermaid diagram generation and LaTeX math rendering (`$...$` / `$$...$$`, via MathJax) built into the assistant's answers
+- Multiple generation safety nets: repetition-loop detection (stops the model if it starts looping), a hard 4000-character cap on streamed answers, and relative/absolute confidence filtering so weak or off-topic retrieval results get dropped instead of answered from
+- `resync_index` action to re-index the documents folder from the UI without restarting the app
+- Test suite (`app/tests/`, `unittest.mock`) covering ingestion, retrieval, RAG pipeline, streaming, and the local-files API, with a `run_all.py` runner
 
 ---
 
 ## Technologies Used
 
 - Python
-- Sentence Transformers
-- ChromaDB / FAISS
-- Foundry Local SDK
-- Local Language Models
-- NumPy
-- PyTorch
+- Sentence Transformers (cross-encoder re-ranking)
+- Foundry Local SDK (Qwen3 embedding + chat models, served fully locally)
+- `rank-bm25` (lexical retrieval)
+- NumPy (vectorized similarity search)
+- PyMuPDF / `python-docx` / `python-pptx` / `openpyxl` (document ingestion)
 - pywebview (desktop UI)
 - SQLite (embedding storage + chat history persistence)
+- python-dotenv (`.env` config, e.g. `DOCS_PATH`)
+- MathJax (in-app LaTeX rendering)
 - unittest / unittest.mock (test suite)
+
+> Note: `ChromaDB` / `FAISS` and a standalone `PyTorch` dependency, previously listed here, aren't actually used — embeddings are stored in SQLite and similarity search is a custom NumPy implementation, not a vector-database library.
 
 ---
 
@@ -51,24 +60,46 @@ This project focuses on document retrieval, semantic search, and local AI infere
 app/
 │
 ├── ingestion/
-│   ├── document_loader.py
+│   ├── document_loader.py       # TXT / PDF / DOCX / MD / PPTX / XLSX loaders
 │   ├── embedding_generator.py
+│   ├── embedding_store.py       # SQLite persistence for embeddings
 │   └── text_splitter.py
 │
 ├── retrieval/
-│   ├── retriever.py
-│   └── vector_store.py
+│   ├── retriever.py             # hybrid BM25 + semantic search, cross-encoder re-ranking
+│   └── vector_store.py          # NumPy-vectorized cosine similarity
 │
-├── generation/
-│   └── llm_handler.py
+├── llm/
+│   ├── local_llm.py             # Foundry Local client setup (embedding + chat models)
+│   └── prompt_templates.py      # RAG system prompt (incl. Mermaid/LaTeX instructions)
 │
 ├── utils/
-│   └── helpers.py
+│   └── helpers.py               # clean_answer() - strips <think> blocks, etc.
 │
-└── main.py
+├── tests/
+│   ├── _common.py
+│   ├── run_all.py
+│   ├── test_api_list_local_files.py
+│   ├── test_helpers.py
+│   ├── test_rag_pipeline.py
+│   ├── test_rag_streaming.py
+│   └── test_retriever.py
+│
+├── config.py                    # model names + all retrieval/reranker settings
+├── rag_pipeline.py               # non-streaming RAG turn (ask_question)
+├── rag_streaming.py               # streaming RAG turn (stream_ask_question)
+├── main.py                       # pywebview Api class: chats, streaming sessions, settings, files
+└── test.py
 
-tests/
-│   └── (unittest.mock-based test suite covering all modules and regression cases)
+frontend/
+├── index.html                   # pywebview UI (chat, dashboard, model mgmt, query history, local files, documents, settings)
+└── main.css                     # pink/orchid theme
+
+vector/
+└── embeddings.db                 # SQLite embedding cache
+
+data/                              # documents to be ingested (path configurable via DOCS_PATH)
+docs/
 ```
 
 ---
@@ -78,14 +109,16 @@ tests/
 1. Documents are loaded into the system
 2. Text is split into smaller chunks
 3. Embeddings are generated for each chunk
-4. Embeddings are stored in a vector database
+4. Embeddings are cached in a local SQLite database (no vector-database library involved), so they aren't regenerated on the next launch
 5. User queries are converted into embeddings
 6. Relevant chunks are retrieved using semantic similarity
 7. Retrieved context is passed to the local LLM
 8. The assistant generates a contextual response
-9. Retrieval is hybrid: BM25 (lexical) and semantic similarity scores are combined, then top candidates are re-ranked with a cross-encoder before being passed to the LLM
-10. The response is streamed token-by-token into the desktop UI instead of being returned all at once
-11. Sources cited in the answer are verified against the retrieved chunks via word-overlap matching, so attribution doesn't depend on the LLM self-reporting correctly
+9. Retrieval is hybrid: BM25 (lexical) and semantic similarity scores are combined (default 50/50), then the top candidates are re-ranked with a cross-encoder (weighted 70/30 against the hybrid score) before being passed to the LLM
+10. Results below the minimum score threshold, or far weaker than the top result, are dropped; a vague follow-up with no prior history and low confidence gets a "not enough information" answer instead of a guess
+11. An optional `[filename] question` syntax restricts retrieval to a single source document
+12. The response is streamed into the desktop UI via a session-based polling loop, with `<think>` blocks buffered and stripped before anything reaches the screen, and generation stopped early if the model starts repeating itself or exceeds a hard character cap
+13. Sources cited in the answer are verified against the retrieved chunks via word-overlap matching, so attribution doesn't depend on the LLM self-reporting correctly
 
 ---
 
@@ -130,14 +163,13 @@ While building this project, I gained hands-on experience in:
 
 ## Future Improvements
 
-- PDF and DOCX support
-- Conversation memory
-- Desktop GUI interface
-- Multi-document indexing
-- Streaming responses
+- Fix `load_png`/`load_jpg`/`load_jpeg` in `document_loader.py` — image files are currently opened but the extracted text is never returned, so image ingestion silently produces no content
+- Multi-document indexing UI improvements (tagging, collections)
 - Better ranking and retrieval optimization
 - Standalone installer packaging
 - Broader language support beyond Turkish/English
+
+> The following were previously listed here as future work but are already implemented: PDF/DOCX support, conversation memory (multi-chat + history), the desktop GUI, and streaming responses.
 
 ---
 
@@ -164,7 +196,7 @@ python app/main.py
 Run the test suite:
 
 ```
-python -m unittest discover tests
+python app/tests/run_all.py
 ```
 
 ---
