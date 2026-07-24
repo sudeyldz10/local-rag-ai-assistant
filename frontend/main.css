@@ -213,11 +213,30 @@ body{
 .query-history-item{
   cursor:pointer;
   transition: background .15s ease, border-color .15s ease;
+  display:flex;
+  align-items:center;
+  gap:10px;
 }
 .query-history-item:hover{
   background:var(--surface-hover);
   border-color:var(--border-strong);
 }
+.query-history-title{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  flex:1;
+}
+.query-history-delete{
+  border:0;
+  background:transparent;
+  color:var(--text-muted);
+  cursor:pointer;
+  font-size:20px;
+  line-height:1;
+  padding:0 2px;
+}
+.query-history-delete:hover{ color:var(--danger, #d65a79); }
 .local-file-item{
   cursor:pointer;
   transition: all 0.2s ease;

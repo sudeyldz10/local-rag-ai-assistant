@@ -10,9 +10,9 @@ retrieval_candidate_k = 10
 # Minimum combined (BM25 + semantic) score for a chunk to be considered relevant
 min_score_threshold = 0.55
 # Minimum confidence before the assistant treats an answer as reliable
-min_confidence_score = 0.60
+min_confidence_score = 0.6
 # Used to compare a chunk's score relative to the top result's score
-relative_score_ratio = 0.90
+relative_score_ratio = 0.9
 
 # Hybrid search weighting: must sum to 1.0 (50/50 keyword vs meaning-based matching)
 bm25_weight = 0.5

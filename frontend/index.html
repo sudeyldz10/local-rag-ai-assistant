@@ -552,8 +552,31 @@ function escapeHtml(text) {
         chats.forEach(chat => {
           const item = document.createElement('div');
           item.className = 'query-history-item';
-          item.style.cursor = 'pointer';
-          item.textContent = chat.title || 'Untitled chat';
+          const title = document.createElement('span');
+          title.className = 'query-history-title';
+          title.textContent = chat.title || 'Untitled chat';
+
+          const deleteButton = document.createElement('button');
+          deleteButton.className = 'query-history-delete';
+          deleteButton.type = 'button';
+          deleteButton.title = 'Delete chat';
+          deleteButton.setAttribute('aria-label', `Delete ${title.textContent}`);
+          deleteButton.textContent = '×';
+          deleteButton.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            if (!window.confirm(`Delete "${title.textContent}" and all its messages?`)) return;
+
+            try {
+              const result = await window.pywebview.api.delete_chat(chat.chat_id);
+              if (!result.success) throw new Error(result.error || 'Delete failed');
+              if (result.was_active) clearChatUI();
+              await refreshQueryHistory();
+            } catch (err) {
+              console.error('Chat could not be deleted:', err);
+            }
+          });
+
+          item.append(title, deleteButton);
           item.addEventListener('click', () => openChatFromHistory(chat.chat_id));
           listEl.appendChild(item);
         });
@@ -703,10 +726,14 @@ try {
         semantic_weight: document.getElementById("setting-semantic-weight").value
       };
 
-      const result = await pywebview.api.save_settings(newSettings);
-
-      if (result.success) {
-        alert("The settings have been saved. Restart the app for the changes to take effect.");
+      try {
+        const result = await window.pywebview.api.save_settings(newSettings);
+        if (!result.success) throw new Error(result.error || 'Settings could not be saved.');
+        await loadSettings();
+        alert("Settings saved. New queries will use them immediately.");
+      } catch (err) {
+        console.error('Settings could not be saved:', err);
+        alert('Settings could not be saved: ' + err.message);
       }
     }
 

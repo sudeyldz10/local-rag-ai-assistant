@@ -3,6 +3,8 @@ import os
 import sqlite3
 import uuid
 import threading
+import importlib
+import math
 from datetime import datetime
 import webview
 import re
@@ -11,7 +13,7 @@ from dotenv import load_dotenv
 # Load env vars from project root .env
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
-# Make project root importable (ingestion/, llm/, retrieval/, utils/)
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ingestion.document_loader import load_documents
@@ -117,6 +119,30 @@ class Api:
             messages.append({"role": role, "content": content})
         self.history = messages
         return {"messages": messages}
+
+    def delete_chat(self, chat_id):
+        """Permanently remove one chat and all of its saved messages."""
+        if not chat_id:
+            return {"success": False, "error": "missing_chat_id"}
+
+        cursor = self.conn.execute(
+            "SELECT 1 FROM chats WHERE chat_id=?", (chat_id,)
+        )
+        if cursor.fetchone() is None:
+            return {"success": False, "error": "chat_not_found"}
+
+        was_active = chat_id == self.current_chat_id
+        with self.conn:
+            self.conn.execute("DELETE FROM messages WHERE chat_id=?", (chat_id,))
+            self.conn.execute("DELETE FROM chats WHERE chat_id=?", (chat_id,))
+
+        if was_active:
+            self.current_chat_id = None
+            self.history = []
+            new_chat = self.new_chat()
+            return {"success": True, "was_active": True, **new_chat}
+
+        return {"success": True, "was_active": False}
 
     def _save_message(self, role, content):
         """
@@ -404,47 +430,80 @@ class Api:
         }
 
     def get_settings(self):
-        # Reads current retrieval/reranking settings from config.py
-        from config import (
-            top_k,
-            retrieval_candidate_k,
-            min_score_threshold,
-            min_confidence_score,
-            relative_score_ratio,
-            enable_reranker,
-            bm25_weight,
-            semantic_weight
-        )
+        # Read from the loaded config module so saved values are shown immediately.
+        settings = importlib.import_module("config")
 
         return {
-            "top_k": top_k,
-            "retrieval_candidate_k": retrieval_candidate_k,
-            "min_score_threshold": min_score_threshold,
-            "min_confidence_score": min_confidence_score,
-            "relative_score_ratio": relative_score_ratio,
-            "enable_reranker": enable_reranker,
-            "bm25_weight": bm25_weight,
-            "semantic_weight": semantic_weight
+            "top_k": settings.top_k,
+            "retrieval_candidate_k": settings.retrieval_candidate_k,
+            "min_score_threshold": settings.min_score_threshold,
+            "min_confidence_score": settings.min_confidence_score,
+            "relative_score_ratio": settings.relative_score_ratio,
+            "enable_reranker": settings.enable_reranker,
+            "bm25_weight": settings.bm25_weight,
+            "semantic_weight": settings.semantic_weight
         }
 
     def save_settings(self, new_settings):
-        # Rewrites matching "key = value" lines directly in config.py
-        # (requires app restart to take effect)
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        config_path = os.path.join(project_root, "config.py")
+        """Validate, persist, and immediately apply retrieval settings."""
+        try:
+            integer_keys = {"top_k", "retrieval_candidate_k"}
+            float_keys = {
+                "min_score_threshold", "min_confidence_score", "relative_score_ratio",
+                "bm25_weight", "semantic_weight"
+            }
+            allowed_keys = integer_keys | float_keys | {"enable_reranker"}
+            if not isinstance(new_settings, dict) or set(new_settings) != allowed_keys:
+                return {"success": False, "error": "Invalid settings payload."}
 
-        with open(config_path, "r") as f:
-            content = f.read()
+            parsed = {}
+            for key in integer_keys:
+                parsed[key] = int(new_settings[key])
+                if parsed[key] < 1:
+                    raise ValueError(f"{key} must be at least 1.")
+            for key in float_keys:
+                parsed[key] = float(new_settings[key])
+                if not math.isfinite(parsed[key]) or not 0 <= parsed[key] <= 1:
+                    raise ValueError(f"{key} must be between 0 and 1.")
 
-        for key, value in new_settings.items():
-            pattern = rf"^{key}\s*=\s*.+$"
-            replacement = f"{key} = {value}"
-            content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+            reranker_value = new_settings["enable_reranker"]
+            if isinstance(reranker_value, bool):
+                parsed["enable_reranker"] = reranker_value
+            elif str(reranker_value).lower() in {"true", "false"}:
+                parsed["enable_reranker"] = str(reranker_value).lower() == "true"
+            else:
+                raise ValueError("enable_reranker must be true or false.")
 
-        with open(config_path, "w") as f:
-            f.write(content)
+            if not math.isclose(
+                parsed["bm25_weight"] + parsed["semantic_weight"], 1.0, abs_tol=0.001
+            ):
+                raise ValueError("BM25 and semantic weights must add up to 1.")
 
-        return {"success": True}
+            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.py")
+            with open(config_path, "r", encoding="utf-8") as file:
+                content = file.read()
+            for key, value in parsed.items():
+                content = re.sub(
+                    rf"^{key}\s*=\s*.+$", f"{key} = {value!r}", content, flags=re.MULTILINE
+                )
+            with open(config_path, "w", encoding="utf-8") as file:
+                file.write(content)
+
+            # Other modules imported these values directly, so update their copies too.
+            config_module = importlib.import_module("config")
+            for key, value in parsed.items():
+                setattr(config_module, key, value)
+            for module_name in ("retrieval.retriever", "rag_pipeline", "rag_streaming"):
+                module = importlib.import_module(module_name)
+                for key, value in parsed.items():
+                    if hasattr(module, key):
+                        setattr(module, key, value)
+
+            return {"success": True, "settings": parsed}
+        except (TypeError, ValueError) as error:
+            return {"success": False, "error": str(error)}
+        except OSError as error:
+            return {"success": False, "error": f"Could not save settings: {error}"}
 
     def get_documents_summary(self):
         # Groups indexed chunks by source file for the Documents view

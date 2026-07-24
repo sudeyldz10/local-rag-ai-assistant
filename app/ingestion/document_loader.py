@@ -1,6 +1,8 @@
 import os
 import fitz
 from docx import Document
+import pytesseract
+from PIL import Image
 
 
 def load_txt(file_path):
@@ -31,11 +33,15 @@ def load_docx(file_path):
 
 
 def load_png(file_path):
-    # NOTE: images are opened with fitz (works if it's an image-only PDF, not a real raster image)
+    # Real raster image OCR via pytesseract (fitz has no text layer for actual photos/screenshots)
     text = ""
-    image = fitz.open(file_path)
-    for page in image:
-        text += page.get_text()
+    try:
+        image = Image.open(file_path)
+        text = pytesseract.image_to_string(image, lang="eng+tur")
+    except Exception as e:
+        print(f"OCR error for {file_path}: {e}")
+        text = ""
+    return text.strip()
 
 
 def load_jpg(file_path):

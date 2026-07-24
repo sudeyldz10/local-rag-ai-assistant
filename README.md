@@ -23,16 +23,16 @@ This project focuses on document retrieval, semantic search, and local AI infere
 - Turkish language support: pronoun/topic-word detection for vague follow-up questions
 - Sentence-aware chunking (splits on sentence boundaries instead of fixed character windows), with hard character-based splitting as a fallback for oversized sentences
 - Vectorized cosine similarity with NumPy (~480x speedup over the naive loop-based version)
-- Multi-chat with SQLite-backed persistence (multiple conversations, full session recall)
+- Multi-chat with SQLite-backed persistence, full session recall, and per-chat deletion from Query History
 - Desktop UI built with pywebview, pink/orchid theme
 - Six sidebar views: Dashboard, Model Management, Query History, Local Files, Documents, and Settings — in addition to the main Chat view
 - Live-tunable retrieval settings from the Settings panel: `top_k`, candidate `k`, minimum score threshold, minimum confidence, relative score ratio, reranker on/off, and BM25/semantic weight split — no restart needed
-- Document ingestion beyond TXT/PDF/DOCX: also supports Markdown, PPTX (slide text extraction), and XLSX (cell-by-cell text extraction)
+- Document ingestion beyond TXT/PDF/DOCX: also supports Markdown, PPTX (slide text extraction), XLSX (cell-by-cell text extraction), and PNG/JPG/JPEG via Tesseract OCR
 - `[filename] question` query syntax to restrict retrieval to a single source document
 - Mermaid diagram generation and LaTeX math rendering (`$...$` / `$$...$$`, via MathJax) built into the assistant's answers
 - Multiple generation safety nets: repetition-loop detection (stops the model if it starts looping), a hard 4000-character cap on streamed answers, and relative/absolute confidence filtering so weak or off-topic retrieval results get dropped instead of answered from
 - `resync_index` action to re-index the documents folder from the UI without restarting the app
-- Test suite (`app/tests/`, `unittest.mock`) covering ingestion, retrieval, RAG pipeline, streaming, and the local-files API, with a `run_all.py` runner
+- Test suite (`app/tests/`, `unittest.mock`) covering retrieval, RAG pipeline, streaming, helper functions, and the local-files API, with a `run_all.py` runner
 
 ---
 
@@ -44,6 +44,7 @@ This project focuses on document retrieval, semantic search, and local AI infere
 - `rank-bm25` (lexical retrieval)
 - NumPy (vectorized similarity search)
 - PyMuPDF / `python-docx` / `python-pptx` / `openpyxl` (document ingestion)
+- Tesseract OCR / `pytesseract` / Pillow (PNG, JPG, and JPEG ingestion)
 - pywebview (desktop UI)
 - SQLite (embedding storage + chat history persistence)
 - python-dotenv (`.env` config, e.g. `DOCS_PATH`)
@@ -60,7 +61,7 @@ This project focuses on document retrieval, semantic search, and local AI infere
 app/
 │
 ├── ingestion/
-│   ├── document_loader.py       # TXT / PDF / DOCX / MD / PPTX / XLSX loaders
+│   ├── document_loader.py       # TXT / PDF / DOCX / MD / PPTX / XLSX / image-OCR loaders
 │   ├── embedding_generator.py
 │   ├── embedding_store.py       # SQLite persistence for embeddings
 │   └── text_splitter.py
@@ -115,7 +116,7 @@ docs/
 7. Retrieved context is passed to the local LLM
 8. The assistant generates a contextual response
 9. Retrieval is hybrid: BM25 (lexical) and semantic similarity scores are combined (default 50/50), then the top candidates are re-ranked with a cross-encoder (weighted 70/30 against the hybrid score) before being passed to the LLM
-10. Results below the minimum score threshold, or far weaker than the top result, are dropped; a vague follow-up with no prior history and low confidence gets a "not enough information" answer instead of a guess
+10. Results below the minimum score threshold, or far weaker than the top result, are dropped; a vague follow-up with no prior history and low confidence gets a “not enough information” answer instead of a guess
 11. An optional `[filename] question` syntax restricts retrieval to a single source document
 12. The response is streamed into the desktop UI via a session-based polling loop, with `<think>` blocks buffered and stripped before anything reaches the screen, and generation stopped early if the model starts repeating itself or exceeds a hard character cap
 13. Sources cited in the answer are verified against the retrieved chunks via word-overlap matching, so attribution doesn't depend on the LLM self-reporting correctly
@@ -163,7 +164,6 @@ While building this project, I gained hands-on experience in:
 
 ## Future Improvements
 
-- Fix `load_png`/`load_jpg`/`load_jpeg` in `document_loader.py` — image files are currently opened but the extracted text is never returned, so image ingestion silently produces no content
 - Multi-document indexing UI improvements (tagging, collections)
 - Better ranking and retrieval optimization
 - Standalone installer packaging
@@ -176,10 +176,12 @@ While building this project, I gained hands-on experience in:
 ## Installation
 
 ```
-git clone <your-repository-link>
+git clone https://github.com/sudeyldz10/local-rag-ai-assistant.git
 cd local-rag-ai-assistant
 pip install -r requirements.txt
 ```
+
+For PNG/JPG/JPEG ingestion, install the Tesseract system application as well. `pytesseract` is only the Python bridge; it does not include the OCR engine or language data.
 
 Set your documents folder in `.env`:
 
