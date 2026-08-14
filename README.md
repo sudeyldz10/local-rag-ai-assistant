@@ -51,7 +51,6 @@ This project focuses on document retrieval, semantic search, and local AI infere
 - MathJax (in-app LaTeX rendering)
 - unittest / unittest.mock (test suite)
 
-> Note: `ChromaDB` / `FAISS` and a standalone `PyTorch` dependency, previously listed here, aren't actually used — embeddings are stored in SQLite and similarity search is a custom NumPy implementation, not a vector-database library.
 
 ---
 
@@ -169,7 +168,6 @@ While building this project, I gained hands-on experience in:
 - Standalone installer packaging
 - Broader language support beyond Turkish/English
 
-> The following were previously listed here as future work but are already implemented: PDF/DOCX support, conversation memory (multi-chat + history), the desktop GUI, and streaming responses.
 
 ---
 
